@@ -8,12 +8,11 @@ Evaluates customer financial transactions against regulatory compliance rules an
 
 ## Submission Checklist
 
-- [x] **How to run the program.** *(See below)*
-- [x] **How to run the tests.** *(See below)*
-- [x] **Assumptions made, and how your program handles unexpected or malformed data.** *(See below)*
-- [x] **What you would do next with more time.** *(See below)*
-- [x] **Any tools you used, including AI assistants.** *(See below)*
-- [x] **How much time did it take to complete the test.** *(See below)*
+- [x] **How to run the program.** *(Section 1)*
+- [x] **How to run the tests.** *(Section 2)*
+- [x] **Assumptions made, and how your program handles unexpected or malformed data.** *(Section 3)*
+- [x] **What you would do next with more time.** *(Section 4)*
+- [x] **Any tools you used, including AI assistants.** *(Section 5)*
 
 ---
 
@@ -23,13 +22,14 @@ Evaluates customer financial transactions against regulatory compliance rules an
 .
 ├── transactions.json        Customer transactions export (root copy for CLI evaluation)
 ├── rules.csv                Customer compliance rules export (root copy for CLI evaluation)
-├── run.sh                   Portable runner script for Mode A (CLI evaluation)
-├── start-web.sh             Portable runner script for Mode B (Web dashboard on port 3000)
+├── run.sh                   Portable runner script for CLI evaluation (Mode A)
+├── start-web.sh             Portable runner script for Web dashboard on port 3000 (Mode B)
 ├── mvnw                     Maven Wrapper script (no local Maven install needed)
 ├── candidate-brief.md       Original take-home brief and specifications
 ├── decision.md              Architectural and design decisions
 ├── RULES.md                 Field and operator reference guide
 ├── backend/                 Java 17 / Spring Boot compliance engine
+│   ├── pom.xml              Maven configuration with Pyroscope Java Agent
 │   ├── src/main/java/       Loaders, rule engine, REST API, models
 │   ├── src/main/resources/  Default bundled transactions and rules
 │   └── src/test/java/       Comprehensive test suites (37 unit, integration & profiling tests)
@@ -46,23 +46,23 @@ Evaluates customer financial transactions against regulatory compliance rules an
 
 ---
 
-### Running the Program
+### Command-Line Evaluation (Mode A — Primary Submission)
 
-To run the compliance evaluator on the customer files, run:
+To evaluate customer files via the command-line script:
 
 ```bash
 ./run.sh transactions.json rules.csv
 ```
 
-*(Note: `./run.sh` is a shell wrapper that automatically builds the JAR if needed via `./mvnw` and delegates directly to `java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar "$@"`).*
+*(Note: `./run.sh` builds the JAR on demand via `./mvnw` if missing, then executes `java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar "$@"`).*
 
-Alternatively, you can invoke the JAR directly:
+Alternatively, you can run the JAR directly:
 ```bash
 java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar transactions.json rules.csv
 ```
 
 #### Standard Output Format:
-Matches `candidate-brief.md` specification character-for-character:
+Matches the `candidate-brief.md` specification character-for-character:
 ```
 Transaction	Breached Rules
 TXN001	R001 (HIGH), R003 (MEDIUM), R006 (MEDIUM)
@@ -77,25 +77,26 @@ TXN008	R001 (HIGH), R002 (HIGH), R003 (MEDIUM), R006 (MEDIUM), R007 (LOW), R008 
 
 ---
 
-### Interactive Web Dashboard (Optional Extension, Port 3000)
-For the interview walkthrough (*"In a follow-up session we will ask you to walk through your solution and extend it"*):
+### Interactive Web Dashboard (Mode B — Optional Extension on Port 3000)
+
+Prepared for the follow-up walkthrough session (*"In a follow-up session we will ask you to walk through your solution and extend it"*):
 
 ```bash
 ./start-web.sh
 ```
-Open **[http://localhost:3000](http://localhost:3000)** in any browser.
+Open **[http://localhost:3000](http://localhost:3000)** in any modern browser.
 
-#### Features Available in Web UI:
-- **📊 Compliance Report**: Summary metrics (Total, Breached, Compliant, Total Violations), live search filter, and toggleable raw TSV preview/copy.
-- **🔍 Transaction Details Inspector**: Click on any `transaction_id` or row to open the inspector drawer displaying full fields, UTC hour calculation, breached rule descriptions, raw JSON copy, and `◀ Prev` / `Next ▶` keyboard navigation.
-- **➕ Add Compliance Rule**: Form with fields, operators, UTC hour dropdown (0–23), and live CSV preview; validates against backend before writing to `rules.csv`.
+#### Features Available in the Dashboard:
+- **📊 Compliance Summary & Filter**: Real-time metrics (Total, Breached, Compliant, Total Violations), instant search, status filtering, and raw TSV preview/copy.
+- **🔍 Transaction Details Inspector**: Click any row or transaction ID to open a drawer displaying all fields, calculated UTC hour, breached rule details, and keyboard navigation (`◀ Prev` / `Next ▶`).
+- **➕ Add Compliance Rule**: Form with live CSV row preview, field/operator compatibility checks, and UTC hour dropdown (0–23); validates rules before updating `rules.csv`.
 - **💳 Ingest Transactions**: Upload `transactions.json` files or paste batch JSON with pre-flight schema validation.
 
 ---
 
 ## 2. How to Run the Tests
 
-Execute the complete automated test suite using the bundled Maven wrapper:
+Execute the automated test suite using the bundled Maven wrapper:
 
 ```bash
 ./mvnw -f backend/pom.xml test
@@ -236,9 +237,6 @@ This submission follows the principle: **Be strict on rules (fail-fast), be resi
 - **Java 17 & Spring Boot 3.3.5**: Core rule engine, loaders, and REST API.
 - **Nuxt 3 & Vue 3**: Reactive web dashboard, modal drawer inspector, and client-side validation.
 - **Apache Commons CSV & Jackson (JavaTimeModule)**: Robust CSV and ISO-8601 JSON parsing.
-- **JUnit 5**: Comprehensive test suite (38 tests covering unit, edge-case, and profiling benchmarks).
-- **Grafana Pyroscope & Java Profiling Agent**: Low-overhead continuous CPU profiling and interactive flame graph visualization.
+- **JUnit 5**: Automated test suite (37 tests covering unit, edge-case, and profiling benchmarks).
+- **Grafana Pyroscope & Java Profiling Agent (`io.pyroscope:agent`)**: Low-overhead continuous CPU profiling and interactive flame graph visualization.
 - **Google Antigravity**: AI assistant for iterative development, architecture design, edge-case analysis, and verification.
-
----
-
