@@ -1,0 +1,25 @@
+# Java & Maven
+target/
+backend/target/
+*.class
+.mvn/timing.properties
+.flattened-pom.xml
+
+# Node & Nuxt
+node_modules/
+**/node_modules/
+.nuxt/
+**/.nuxt/
+.output/
+**/.output/
+dist/
+.nitro/
+
+# Temporary files, logs, caches
+*.log
+*.tmp
+.DS_Store
+.idea/
+*.iml
+.vscode/
+graphify-out/

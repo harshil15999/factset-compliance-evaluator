@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  backend:
+    name: Backend Test & Package (Java 21)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Make Scripts Executable
+        run: |
+          chmod +x ./backend/mvnw ./run.sh ./start-web.sh
+
+      - name: Run Unit Tests
+        run: |
+          ./backend/mvnw -f backend/pom.xml test
+
+      - name: Package JAR
+        run: |
+          ./backend/mvnw -f backend/pom.xml package -DskipTests
+
+      - name: Verify CLI Output Format
+        run: |
+          ./run.sh transactions.json rules.csv > output.tsv
+          # Verify TSV header matches specification
+          head -n 1 output.tsv | grep -P "^Transaction\tBreached Rules$"
+          # Verify clean transactions print none
+          grep -P "TXN002\t.*" output.tsv
+          echo "CLI Output verification passed."
+
+      - name: Upload JAR Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: transaction-compliance-evaluator-jar
+          path: backend/target/transaction-compliance-evaluator-0.1.0.jar
+          retention-days: 7
+
+  frontend:
+    name: Frontend Build & Typecheck (Node 20 / Nuxt 3)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install Frontend Dependencies
+        run: |
+          npm --prefix frontend ci
+
+      - name: Build Production Nuxt Bundle
+        run: |
+          npm --prefix frontend run build
+
+  cli-smoke-tests:
+    name: CLI Exit Codes & Error Handling
+    needs: backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Download Built JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: transaction-compliance-evaluator-jar
+          path: backend/target
+
+      - name: Make Scripts Executable
+        run: |
+          chmod +x ./run.sh
+
+      - name: Test Default Fallback (Zero Args)
+        run: |
+          ./run.sh > /dev/null
+          echo "Zero-args execution succeeded with exit code 0."
+
+      - name: Test Invalid Jar CLI Arguments (Expect Exit Code 2)
+        run: |
+          set +e
+          java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar
+          CODE=$?
+          set -e
+          if [ "$CODE" -ne 2 ]; then
+            echo "Expected exit code 2 for missing arguments, got $CODE"
+            exit 1
+          fi
+          echo "Exit code 2 verified for invalid arguments."
+
+      - name: Test Malformed Rules Rejection (Expect Exit Code 1)
+        run: |
+          echo "rule_id,field,operator,severity" > bad_rules.csv
+          echo "R999,country,gt,HIGH" >> bad_rules.csv
+          set +e
+          java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar transactions.json bad_rules.csv 2> err.log
+          CODE=$?
+          set -e
+          if [ "$CODE" -ne 1 ]; then
+            echo "Expected exit code 1 for malformed rule, got $CODE"
+            exit 1
+          fi
+          grep -q "rules row 1" err.log
+          echo "Exit code 1 verified for malformed rule."

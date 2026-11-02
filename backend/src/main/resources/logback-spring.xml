@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Warnings go to stderr so stdout carries only the report.
+     Level is driven by the 'app.log.level' property (default WARN), set per environment via a
+     Spring profile, a property, or the APP_LOG_LEVEL env var. -->
+<configuration>
+    <springProperty name="logLevel" source="app.log.level" defaultValue="WARN"/>
+
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%-5level %logger{0} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="${logLevel}">
+        <appender-ref ref="STDERR"/>
+    </root>
+</configuration>
