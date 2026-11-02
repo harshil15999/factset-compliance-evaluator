@@ -1,5 +1,7 @@
 # Transaction Compliance Evaluator
 
+[![CI](https://github.com/harshil15999/factset-compliance-evaluator/actions/workflows/ci.yml/badge.svg)](https://github.com/harshil15999/factset-compliance-evaluator/actions/workflows/ci.yml)
+
 Evaluates customer financial transactions against regulatory compliance rules and reports violations. Built with a **Java 17** rule engine and an interactive **Nuxt 3 / Vue 3** web dashboard.
 
 ---
