@@ -106,7 +106,7 @@ jobs:
       - name: Test Invalid Jar CLI Arguments (Expect Exit Code 2)
         run: |
           set +e
-          java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar
+          java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar only_one_arg.json
           CODE=$?
           set -e
           if [ "$CODE" -ne 2 ]; then
