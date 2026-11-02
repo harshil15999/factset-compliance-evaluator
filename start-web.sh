@@ -23,7 +23,7 @@ if curl -s -I http://127.0.0.1:3000 >/dev/null 2>&1; then
 fi
 
 # 4. Start the server
-export HOST=127.0.0.1
+export HOST=0.0.0.0
 export PORT=3000
-echo "[INFO] Starting Compliance Evaluator Web UI on http://127.0.0.1:3000..." >&2
+echo "[INFO] Starting Compliance Evaluator Web UI on http://localhost:3000..." >&2
 exec node "${ROOT}/frontend/.output/server/index.mjs"

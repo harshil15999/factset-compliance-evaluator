@@ -81,10 +81,25 @@ TXN008	R001 (HIGH), R002 (HIGH), R003 (MEDIUM), R006 (MEDIUM), R007 (LOW), R008 
 
 Prepared for the follow-up walkthrough session (*"In a follow-up session we will ask you to walk through your solution and extend it"*):
 
+#### 1. Using the Runner Script:
 ```bash
 ./start-web.sh
 ```
-Open **[http://localhost:3000](http://localhost:3000)** in any modern browser.
+*(This script automatically verifies the backend JAR, compiles the frontend bundle if needed, and launches the server on port 3000).*
+
+#### 2. Running Directly via Node:
+If the production bundle is already compiled, you can launch it directly without the script:
+```bash
+HOST=0.0.0.0 PORT=3000 node frontend/.output/server/index.mjs
+```
+
+#### 3. Development Mode:
+For local development with live hot-reloading:
+```bash
+npm --prefix frontend run dev
+```
+
+Once running, open **[http://localhost:3000](http://localhost:3000)** in any modern browser.
 
 #### Features Available in the Dashboard:
 - **📊 Compliance Summary & Filter**: Real-time metrics (Total, Breached, Compliant, Total Violations), instant search, status filtering, and raw TSV preview/copy.
