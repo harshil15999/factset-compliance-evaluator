@@ -48,17 +48,10 @@ Evaluates customer financial transactions against regulatory compliance rules an
 
 ### Command-Line Evaluation (Mode A — Primary Submission)
 
-To evaluate customer files via the command-line script:
+To evaluate transactions against compliance rules:
 
 ```bash
 ./run.sh transactions.json rules.csv
-```
-
-*(Note: `./run.sh` builds the JAR on demand via `./mvnw` if missing, then executes `java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar "$@"`).*
-
-Alternatively, you can run the JAR directly:
-```bash
-java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar transactions.json rules.csv
 ```
 
 #### Standard Output Format:
@@ -77,29 +70,15 @@ TXN008	R001 (HIGH), R002 (HIGH), R003 (MEDIUM), R006 (MEDIUM), R007 (LOW), R008 
 
 ---
 
-### Interactive Web Dashboard (Mode B — Optional Extension on Port 3000)
+### Interactive Web Dashboard (Mode B — Port 3000)
 
-Prepared for the follow-up walkthrough session (*"In a follow-up session we will ask you to walk through your solution and extend it"*):
+To start the interactive UI dashboard for the extension walkthrough:
 
-#### 1. Using the Runner Script:
 ```bash
 ./start-web.sh
 ```
-*(This script automatically verifies the backend JAR, compiles the frontend bundle if needed, and launches the server on port 3000).*
 
-#### 2. Running Directly via Node:
-If the production bundle is already compiled, you can launch it directly without the script:
-```bash
-HOST=0.0.0.0 PORT=3000 node frontend/.output/server/index.mjs
-```
-
-#### 3. Development Mode:
-For local development with live hot-reloading:
-```bash
-npm --prefix frontend run dev
-```
-
-Once running, open **[http://localhost:3000](http://localhost:3000)** in any modern browser.
+Open **[http://localhost:3000](http://localhost:3000)** in any modern browser.
 
 #### Features Available in the Dashboard:
 - **📊 Compliance Summary & Filter**: Real-time metrics (Total, Breached, Compliant, Total Violations), instant search, status filtering, and raw TSV preview/copy.
