@@ -7,12 +7,33 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * The comparison operators from the brief. Keeping the comparison on the enum keeps the rule set
- * data-driven: a new rule is a row in rules.csv, not code. gt/lt compare as numbers; eq/neq/in are
- * case-sensitive string comparisons.
+ * Supported comparison operators for compliance rules.
+ *
+ * <p>Encapsulating the evaluation logic directly within the enum maintains a data-driven
+ * design: introducing or modifying compliance rules requires updating {@code rules.csv} rather
+ * than changing application source code.
+ *
+ * <ul>
+ *   <li>{@link #GT} and {@link #LT}: Strict numeric comparisons using {@link BigDecimal}.</li>
+ *   <li>{@link #EQ}, {@link #NEQ}, and {@link #IN}: Case-sensitive string comparisons.</li>
+ * </ul>
  */
 public enum Operator {
-    GT("gt"), LT("lt"), EQ("eq"), NEQ("neq"), IN("in");
+
+    /** Strict greater-than comparison: {@code fieldValue > ruleValue}. */
+    GT("gt"),
+
+    /** Strict less-than comparison: {@code fieldValue < ruleValue}. */
+    LT("lt"),
+
+    /** Exact string equality: {@code fieldValue.equals(ruleValue)}. Case-sensitive. */
+    EQ("eq"),
+
+    /** Exact string inequality: {@code !fieldValue.equals(ruleValue)}. Case-sensitive. */
+    NEQ("neq"),
+
+    /** Set membership in a comma-separated list of target strings. Case-sensitive. */
+    IN("in");
 
     private final String symbol;
 
@@ -20,6 +41,11 @@ public enum Operator {
         this.symbol = symbol;
     }
 
+    /**
+     * Returns the canonical string representation of this operator as expected in {@code rules.csv}.
+     *
+     * @return The lowercase operator symbol (e.g. {@code "gt"}, {@code "in"}).
+     */
     public String symbol() {
         return symbol;
     }
@@ -27,7 +53,13 @@ public enum Operator {
     private static final Map<String, Operator> BY_SYMBOL = Arrays.stream(values())
             .collect(Collectors.toUnmodifiableMap(Operator::symbol, Function.identity()));
 
-    /** @throws IllegalArgumentException for an unknown symbol (used to skip bad rules). */
+    /**
+     * Resolves an {@code Operator} instance from its lowercase symbol.
+     *
+     * @param symbol The operator symbol from CSV input (e.g. {@code "gt"}, {@code "eq"}).
+     * @return The corresponding {@link Operator} constant.
+     * @throws IllegalArgumentException if the symbol does not match any recognized operator.
+     */
     public static Operator fromSymbol(String symbol) {
         Operator op = BY_SYMBOL.get(symbol);
         if (op == null) {
@@ -36,7 +68,14 @@ public enum Operator {
         return op;
     }
 
-    /** @throws NumberFormatException for gt/lt when a side is not numeric (engine treats as not breached). */
+    /**
+     * Evaluates this operator against a transaction field value and a rule threshold value.
+     *
+     * @param fieldValue The string-serialized value extracted from the transaction.
+     * @param ruleValue  The target comparison value or comma-separated list from the rule.
+     * @return {@code true} if the condition is met (breaching the rule); {@code false} otherwise.
+     * @throws NumberFormatException if {@code GT} or {@code LT} is evaluated on non-numeric input.
+     */
     public boolean test(String fieldValue, String ruleValue) {
         return switch (this) {
             case GT -> new BigDecimal(fieldValue).compareTo(new BigDecimal(ruleValue)) > 0;

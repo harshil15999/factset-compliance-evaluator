@@ -34,6 +34,13 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Service orchestrating transaction compliance evaluations, rule persistence, and schema introspection.
+ *
+ * <p>Provides synchronized in-memory state management for interactive web callers, supporting
+ * dynamic additions of compliance rules, batch transaction replacements with validation rollback,
+ * and structured evaluation results.
+ */
 @Service
 public class ComplianceService {
 
@@ -50,6 +57,14 @@ public class ComplianceService {
     private File rulesFile;
     private String transactionSource = "transactions.json (bundled)";
 
+    /**
+     * Constructs the compliance service and loads initial dataset from disk or classpath resources.
+     *
+     * @param transactionLoader Loader for reading and validating transaction JSON payloads.
+     * @param ruleLoader        Loader for parsing and validating CSV rule definitions.
+     * @param ruleEngine        Core compliance rule evaluation engine.
+     * @param outputFormatter   Formatter for rendering standard TSV reports.
+     */
     public ComplianceService(TransactionLoader transactionLoader,
                              RuleLoader ruleLoader,
                              RuleEngine ruleEngine,
@@ -101,22 +116,47 @@ public class ComplianceService {
         }
     }
 
+    /**
+     * Returns a snapshot copy of the currently active compliance rules.
+     *
+     * @return New list containing all loaded {@link Rule} instances.
+     */
     public synchronized List<Rule> getRules() {
         return new ArrayList<>(this.rules);
     }
 
+    /**
+     * Returns a snapshot copy of the currently loaded customer transactions.
+     *
+     * @return New list containing all loaded {@link Transaction} instances.
+     */
     public synchronized List<Transaction> getTransactions() {
         return new ArrayList<>(this.transactions);
     }
 
+    /**
+     * Returns the description or filename of the active transaction source.
+     *
+     * @return Source identifier string.
+     */
     public synchronized String getTransactionSource() {
         return this.transactionSource;
     }
 
+    /**
+     * Returns the file path or resource description of the active rules source.
+     *
+     * @return Rules source identifier string.
+     */
     public synchronized String getRulesSource() {
         return this.rulesFile != null ? this.rulesFile.getPath() : "rules.csv";
     }
 
+    /**
+     * Generates the rule vocabulary and schema metadata as a structured dictionary.
+     *
+     * @return Map containing field specifications, operators, hour limits, and severities.
+     */
     public Map<String, Object> getSchema() {
         List<Map<String, Object>> fields = new ArrayList<>();
         for (String name : RuleEngine.FIELDS) {
@@ -138,6 +178,11 @@ public class ComplianceService {
         return schema;
     }
 
+    /**
+     * Evaluates all active transactions against all active compliance rules.
+     *
+     * @return Structured map containing evaluation metrics, detailed per-transaction breaches, and raw TSV report.
+     */
     public synchronized Map<String, Object> evaluate() {
         List<Map<String, Object>> results = new ArrayList<>();
         int totalBreaches = 0;
@@ -193,6 +238,12 @@ public class ComplianceService {
         return response;
     }
 
+    /**
+     * Appends a new compliance rule to the disk CSV file and live in-memory ruleset after validation.
+     *
+     * @param input Map containing {@code rule_name}, {@code field}, {@code operator}, {@code value}, and {@code severity}.
+     * @return Map with {@code ok: true} and assigned {@code ruleId}, or {@code ok: false} with validation problems.
+     */
     public synchronized Map<String, Object> addRule(Map<String, String> input) {
         Map<String, Object> response = new LinkedHashMap<>();
         try {
@@ -240,6 +291,13 @@ public class ComplianceService {
         }
     }
 
+    /**
+     * Atomically replaces active transactions with a newly uploaded JSON batch following pre-flight validation.
+     *
+     * @param jsonContent Raw JSON payload containing the {@code transactions} array.
+     * @param filename    Optional label identifying the source file.
+     * @return Map with {@code ok: true} and ingested transaction count, or {@code ok: false} with validation problems.
+     */
     public synchronized Map<String, Object> updateTransactions(String jsonContent, String filename) {
         Map<String, Object> response = new LinkedHashMap<>();
         try {

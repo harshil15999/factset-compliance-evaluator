@@ -168,6 +168,22 @@ The project includes low-overhead continuous CPU profiling using the official `i
 
 ---
 
+### Generating API Documentation (Javadoc)
+
+To generate the complete HTML Javadoc API documentation site:
+
+```bash
+./mvnw -f backend/pom.xml javadoc:javadoc
+```
+
+The generated HTML documentation is located at:
+```
+backend/target/reports/apidocs/index.html
+```
+Open this file in any browser to inspect class hierarchies, record schemas, and method contracts.
+
+---
+
 ## 3. Assumptions Made & Handling of Unexpected/Malformed Data
 
 This submission follows the principle: **Be strict on rules (fail-fast), be resilient and transparent on customer transaction data (lenient with diagnostics).**

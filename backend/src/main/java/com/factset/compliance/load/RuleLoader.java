@@ -23,7 +23,19 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/** Loads rules.csv. A row that cannot be parsed is skipped with a warning, not fatal. */
+/**
+ * CSV parser and validator for compliance rules loaded from {@code rules.csv}.
+ *
+ * <p>Enforces strict validation rules:
+ * <ul>
+ *   <li>The CSV header must include {@code rule_id}, {@code field}, {@code operator}, and {@code severity}.</li>
+ *   <li>{@code rule_id} values must be unique and match the canonical {@code ^R\d+$} pattern.</li>
+ *   <li>Fields must belong to the approved domain vocabulary in {@link RuleEngine#FIELDS}.</li>
+ *   <li>Operators must be compatible with field types (e.g. {@code gt}/{@code lt} only on numeric fields).</li>
+ *   <li>Numeric thresholds must parse cleanly as {@link BigDecimal} and cannot be negative.</li>
+ *   <li>Hour thresholds must parse as integer values in the range {@code 0..23}.</li>
+ * </ul>
+ */
 @Component
 public class RuleLoader {
 
@@ -34,6 +46,13 @@ public class RuleLoader {
     private static final Pattern CURRENCY = Pattern.compile("^[A-Z]{3}$"); // ISO 4217
     private static final Pattern IDENTIFIER = Pattern.compile("^[A-Z0-9_]+$");
 
+    /**
+     * Parses rules from a character stream, skipping malformed records with warning diagnostics.
+     *
+     * @param reader Source reader providing CSV formatted rule data.
+     * @return List of successfully parsed {@link Rule} instances.
+     * @throws IOException If an I/O error occurs reading from the underlying stream.
+     */
     public List<Rule> load(Reader reader) throws IOException {
         List<Rule> rules = new ArrayList<>();
         int skipped = 0;
@@ -59,7 +78,13 @@ public class RuleLoader {
         return rules;
     }
 
-    /** Checks every row and returns all problems (empty = valid), so a CSV editor sees every mistake at once. */
+    /**
+     * Validates an entire rules CSV payload without dropping rows, returning all semantic violations.
+     *
+     * @param reader Source reader providing CSV formatted rule data to inspect.
+     * @return List of error messages; empty if the entire CSV is strictly valid.
+     * @throws IOException If an I/O error occurs reading from the stream.
+     */
     public List<String> validate(Reader reader) throws IOException {
         List<String> problems = new ArrayList<>();
         Set<String> seenIds = new HashSet<>();
@@ -174,7 +199,7 @@ public class RuleLoader {
                         // In-range but vacuous: gt MAX and lt MIN can never match.
                         if (op.equals("gt") && h == RuleEngine.HOUR_MAX) {
                             problems.add(at + "'gt " + h + "' on " + field + " can never match ("
-                                    + RuleEngine.HOUR_MAX + " is the max hour)");
+                                     + RuleEngine.HOUR_MAX + " is the max hour)");
                         } else if (op.equals("lt") && h == RuleEngine.HOUR_MIN) {
                             problems.add(at + "'lt " + h + "' on " + field + " can never match ("
                                     + RuleEngine.HOUR_MIN + " is the min hour)");

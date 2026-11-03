@@ -31,14 +31,22 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Headless CLI application: reads the two files, evaluates every rule against every transaction,
- * and prints the report to stdout (warnings go to stderr).
+ * Headless CLI application and entry point for the Transaction Compliance Evaluator.
  *
- * <p>Pass both {@code <transactions.json> <rules.csv>} as arguments, or neither to use the bundled copies.
+ * <p>Configured strictly with {@link WebApplicationType#NONE} to eliminate embedded Tomcat
+ * and web server overhead, ensuring deterministic zero-collision CLI execution.
  *
- * <p>Pass {@code validate} (with both paths, or neither) to check inputs without running the report.
- *
- * <p>Pass {@code schema} to output the rule vocabulary JSON.
+ * <h3>Command-Line Modes:</h3>
+ * <ul>
+ *   <li><b>Standard Evaluation</b>: {@code java -jar app.jar <transactions.json> <rules.csv>}<br>
+ *       Validates rules, evaluates all transactions, and prints the standard TSV report to stdout.</li>
+ *   <li><b>Default Evaluation</b>: {@code java -jar app.jar}<br>
+ *       Evaluates default bundled or working directory files.</li>
+ *   <li><b>Pre-flight Validation</b>: {@code java -jar app.jar validate [<transactions.json> <rules.csv>]}<br>
+ *       Inspects files for schema or semantic errors without executing the compliance report.</li>
+ *   <li><b>Schema Introspection</b>: {@code java -jar app.jar schema}<br>
+ *       Prints the rule vocabulary and field constraints as JSON for external tools and the web dashboard.</li>
+ * </ul>
  */
 @SpringBootApplication
 public class ComplianceApplication implements ApplicationRunner {
@@ -50,6 +58,14 @@ public class ComplianceApplication implements ApplicationRunner {
     private final RuleEngine ruleEngine;
     private final OutputFormatter outputFormatter;
 
+    /**
+     * Constructs the main application with necessary evaluation and loading dependencies.
+     *
+     * @param transactionLoader Loader for reading and validating transaction JSON payloads.
+     * @param ruleLoader        Loader for parsing and validating CSV rule definitions.
+     * @param ruleEngine        Core compliance rule evaluation engine.
+     * @param outputFormatter   Formatter for rendering standard TSV reports.
+     */
     public ComplianceApplication(TransactionLoader transactionLoader, RuleLoader ruleLoader,
                                  RuleEngine ruleEngine, OutputFormatter outputFormatter) {
         this.transactionLoader = transactionLoader;
@@ -58,6 +74,11 @@ public class ComplianceApplication implements ApplicationRunner {
         this.outputFormatter = outputFormatter;
     }
 
+    /**
+     * Main application entry point. Launches Spring Boot in headless CLI mode.
+     *
+     * @param args Command-line arguments.
+     */
     public static void main(String[] args) {
         SpringApplication app = new SpringApplication(ComplianceApplication.class);
         app.setWebApplicationType(WebApplicationType.NONE);

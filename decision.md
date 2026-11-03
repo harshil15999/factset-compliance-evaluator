@@ -37,3 +37,6 @@ Written for reviewers evaluating this submission.
 **Rationale:**
 - **Zero Port Collisions:** Port 8080 is commonly occupied on developer workstations. By removing embedded Tomcat, the backend acts as a clean, high-performance engine that can execute as a headless CLI or serve data to the dashboard without port conflicts.
 - **Strict Compliance Evaluation:** The core submission runner (`./run.sh`) executes directly against the JVM with zero web server bloat, exiting cleanly with code 0 and pure TSV on stdout.
+
+---
+**Note:** This design‑decision record is maintained for reviewers and will be updated as the project evolves.

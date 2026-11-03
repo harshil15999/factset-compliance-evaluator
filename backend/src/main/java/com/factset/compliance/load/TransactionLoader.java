@@ -21,7 +21,23 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** Loads transactions.json. Parses element by element so one bad transaction is skipped, not fatal. */
+/**
+ * Ingestion and validation service for transaction batches from {@code transactions.json}.
+ *
+ * <p>Implements a lenient element-by-element parsing strategy: a single corrupted record
+ * within a batch of thousands is skipped and logged to diagnostics rather than aborting the
+ * entire compliance evaluation run.
+ *
+ * <h3>Enforced Data Constraints:</h3>
+ * <ul>
+ *   <li><b>{@code transaction_id}</b>: Mandatory non-blank string. Duplicates within the same file are rejected.</li>
+ *   <li><b>{@code timestamp}</b>: Mandatory ISO-8601 UTC timestamp. Must fall within a sane operational window
+ *       ({@code 2000-01-01T00:00:00Z} to {@code now + 1 day}).</li>
+ *   <li><b>{@code amount}</b>: Mandatory positive number ({@code > 0}), parsed to {@link java.math.BigDecimal}.</li>
+ *   <li><b>{@code currency}</b>: Optional. If present, must conform to ISO-4217 (exactly 3 uppercase letters).</li>
+ *   <li><b>{@code country}</b>: Optional. If present, must conform to ISO-3166 alpha-2 (exactly 2 uppercase letters).</li>
+ * </ul>
+ */
 @Component
 public class TransactionLoader {
 
@@ -38,6 +54,13 @@ public class TransactionLoader {
             .configure(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, true)
             .build();
 
+    /**
+     * Parses transactions from an {@link InputStream}, skipping invalid or duplicate records with warnings.
+     *
+     * @param in Stream providing the root JSON object containing a {@code "transactions"} array.
+     * @return A list of successfully parsed and validated {@link Transaction} instances.
+     * @throws IOException If the root JSON is malformed or missing the required array.
+     */
     public List<Transaction> load(InputStream in) throws IOException {
         JsonNode array = mapper.readTree(in).path("transactions");
         if (!array.isArray()) {
@@ -76,6 +99,12 @@ public class TransactionLoader {
         return transactions;
     }
 
+    /**
+     * Validates an entire transactions payload without dropping records, collecting all schema diagnostics.
+     *
+     * @param in Stream providing the JSON content to inspect.
+     * @return A list of human-readable problem descriptions, empty if the input is completely valid.
+     */
     public List<String> validate(InputStream in) {
         List<String> problems = new ArrayList<>();
         JsonNode root;
@@ -117,13 +146,7 @@ public class TransactionLoader {
     }
 
     /**
-     * Validates one transaction against the required rules:
-     * - transaction_id: required
-     * - timestamp: required; within 2000-01-01Z .. now + 1 day
-     * - amount: required; must be > 0
-     * - currency: if present, must match ^[A-Z]{3}$
-     * - country: if present, must match ^[A-Z]{2}$
-     * - customer_id, account_type, transaction_type: free text (no check)
+     * Validates one transaction against mandatory fields, format constraints, and domain invariants.
      */
     private static void validateRecord(Transaction t, int index, List<String> problems) {
         String prefix = "transactions[" + index + "]: ";
