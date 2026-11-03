@@ -11,7 +11,7 @@ Evaluates customer financial transactions against regulatory compliance rules an
 - [x] **How to run the program.** *(Section 1)*
 - [x] **How to run the tests.** *(Section 2)*
 - [x] **Assumptions made, and how your program handles unexpected or malformed data.** *(Section 3)*
-- [x] **What you would do next with more time.** *(Section 4)*
+- [x] **What you would do next.** *(Section 4)*
 - [x] **Any tools you used, including AI assistants.** *(Section 5)*
 
 ---
@@ -121,13 +121,47 @@ flowchart TD
 
 ## 1. How to Run the Program
 
-### Prerequisites
-- **Java 17+** (`java -version`)
-- *(Optional for web dashboard)* **Node.js 18+**
+### Docker Containerized Execution (Recommended for Evaluation — Zero Host Setup)
+
+Reviewers and evaluators need **NO local Java, Node, or Maven installed**—only Docker and Docker Compose. The entire solution is fully containerized and zero-setup:
+
+- **Run CLI evaluation** (prints exact TSV report):
+  ```bash
+  docker compose run --rm cli
+  ```
+
+- **Run with custom files**:
+  ```bash
+  docker compose run --rm cli ./run.sh path/to/tx.json path/to/rules.csv
+  ```
+
+- **Run pre-flight validation**:
+  ```bash
+  docker compose run --rm cli ./run.sh validate
+  ```
+
+- **Run schema introspection**:
+  ```bash
+  docker compose run --rm cli ./run.sh schema
+  ```
+
+- **Launch Web Dashboard on port 3000**:
+  ```bash
+  docker compose up --build
+  ```
+  *(or `docker compose up web`), then browse **[http://localhost:3000](http://localhost:3000)**).*
 
 ---
 
-### Command-Line Evaluation (Mode A — Primary Submission)
+### Native Local Execution (Alternative)
+
+If you prefer running natively on your host machine:
+
+#### Prerequisites
+- **Java 17+** (`java -version`)
+- **Node.js 18+** (for web dashboard)
+
+#### Command-Line Evaluation (Mode A)
 
 To evaluate transactions against compliance rules:
 
@@ -165,7 +199,7 @@ TXN008	R001 (HIGH), R002 (HIGH), R003 (MEDIUM), R006 (MEDIUM), R007 (LOW), R008 
 
 ---
 
-### Interactive Web Dashboard (Mode B — Port 3000)
+#### Interactive Web Dashboard (Mode B — Port 3000)
 
 To start the interactive UI dashboard for the extension walkthrough:
 
@@ -183,28 +217,19 @@ Open **[http://localhost:3000](http://localhost:3000)** in any modern browser.
 
 ---
 
-### Containerized Execution (Mode C — Zero Host Setup via Docker)
-
-For reviewers on clean machines without local Java 17, Node 20, or Maven installed, the entire solution can be executed inside a hermetic multi-stage Docker container (`eclipse-temurin:17-jre-jammy` + `node:20-bookworm-slim`):
-
-```bash
-# Run CLI Evaluation (Mode A via Docker — prints TSV report):
-docker compose run --rm cli
-
-# Or launch Web Dashboard (Mode B via Docker on port 3000):
-docker compose up web
-# (Open http://localhost:3000 in your browser)
-```
-
----
-
 ## 2. How to Run the Tests
 
-Execute the automated test suite using the bundled Maven wrapper:
+Execute the automated test suite either via Docker (recommended for zero setup) or natively using the Maven wrapper:
 
-```bash
-./mvnw -f backend/pom.xml test
-```
+- **Via Docker (Recommended)**:
+  ```bash
+  docker compose run --rm cli ./mvnw -f backend/pom.xml test
+  ```
+
+- **Natively on Host**:
+  ```bash
+  ./mvnw -f backend/pom.xml test
+  ```
 
 ### Test Suite Coverage (46 Tests, 75+ Discrete Scenarios):
 The automated suite thoroughly exercises schema validation, domain invariant enforcement, boundary conditions, edge cases, error diagnostics, and performance profiling across 5 test classes:
@@ -374,7 +399,7 @@ This submission follows the principle: **Be strict on rules (fail-fast), be resi
 
 ---
 
-## 4. What Would Be Done Next With More Time
+## 4. What Would Be Done Next
 
 1. **Cross-Transaction Aggregation & Velocity Rules**:
    - Velocity tracking: Alert when a single customer performs more than $N$ transactions within $X$ hours.
