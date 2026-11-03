@@ -8,9 +8,9 @@ WORKDIR /build/backend
 COPY backend/pom.xml .
 RUN mvn dependency:go-offline -B -q || true
 
-# Compile and package application jar
+# Compile, run tests to pre-cache plugins/dependencies, and package application jar
 COPY backend/src ./src
-RUN mvn clean package -DskipTests -B -q
+RUN mvn clean test package -B -q
 
 # ==============================================================================
 # Stage 2: Build Frontend Bundle (Node 20 + Nuxt 3)
@@ -27,14 +27,17 @@ COPY frontend ./
 RUN npm run build
 
 # ==============================================================================
-# Stage 3: Minimal Unified Runtime Image (Node 20 + Eclipse Temurin 17 JRE)
+# Stage 3: Minimal Unified Runtime Image (Node 20 + Eclipse Temurin 17 JDK)
 # ==============================================================================
 FROM node:20-bookworm-slim AS runtime
 
-# Copy Temurin JRE 17 from official image
-COPY --from=eclipse-temurin:17-jre-jammy /opt/java/openjdk /opt/java/openjdk
+# Copy Temurin JDK 17 and Maven 3.9 from backend-builder
+COPY --from=backend-builder /opt/java/openjdk /opt/java/openjdk
+COPY --from=backend-builder /usr/share/maven /usr/share/maven
+RUN ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
+
 ENV JAVA_HOME=/opt/java/openjdk
-ENV PATH="/opt/java/openjdk/bin:$PATH"
+ENV PATH="/usr/share/maven/bin:/opt/java/openjdk/bin:$PATH"
 
 WORKDIR /app
 
@@ -42,17 +45,22 @@ WORKDIR /app
 RUN mkdir -p /app/backend/target /app/frontend/.output /app/data /app/logs && \
     chown -R node:node /app
 
-# Copy compiled artifacts from builders
+# Pre-populate Maven local repository for offline test runs
+COPY --from=backend-builder --chown=node:node /root/.m2 /home/node/.m2
+
+# Copy backend source and compiled artifacts
+COPY --chown=node:node backend ./backend
 COPY --from=backend-builder --chown=node:node /build/backend/target/transaction-compliance-evaluator-0.1.0.jar /app/backend/target/
+
+# Copy frontend production bundle
 COPY --from=frontend-builder --chown=node:node /build/frontend/.output /app/frontend/.output
 COPY --from=frontend-builder --chown=node:node /build/frontend/package.json /app/frontend/package.json
 
 # Copy scripts and default dataset
-COPY --chown=node:node run.sh start-web.sh ./
+COPY --chown=node:node mvnw run.sh start-web.sh docker-entrypoint.sh ./
 COPY --chown=node:node data ./data
-COPY --chown=node:node docker-entrypoint.sh ./
 
-RUN chmod +x run.sh start-web.sh docker-entrypoint.sh
+RUN chmod +x run.sh start-web.sh docker-entrypoint.sh mvnw
 
 # Security: Execute as non-root user
 USER node
@@ -70,4 +78,3 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["run"]
-
