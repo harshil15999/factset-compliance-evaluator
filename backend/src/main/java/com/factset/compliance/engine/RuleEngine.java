@@ -6,9 +6,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Core compliance evaluation engine.
@@ -65,7 +68,7 @@ public class RuleEngine {
      * Resolves the allowable comparison operators for a given field based on its logical type.
      *
      * <ul>
-     *   <li>{@code number}: Threshold comparisons only ({@code "gt"}, {@code "lt"}).</li>
+     *   <li>{@code number}: Threshold and equality comparisons ({@code "gt"}, {@code "lt"}, {@code "eq"}, {@code "neq"}).</li>
      *   <li>{@code hour}: All operators ({@code "gt"}, {@code "lt"}, {@code "eq"}, {@code "neq"}, {@code "in"}).</li>
      *   <li>{@code string}: Text comparisons ({@code "eq"}, {@code "neq"}, {@code "in"}).</li>
      * </ul>
@@ -75,10 +78,31 @@ public class RuleEngine {
      */
     public static Set<String> allowedOperators(String field) {
         return switch (fieldType(field)) {
-            case "number" -> Set.of("gt", "lt");
+            case "number" -> Set.of("gt", "lt", "eq", "neq");
             case "hour" -> Set.of("gt", "lt", "eq", "neq", "in");
             default -> Set.of("eq", "neq", "in");
         };
+    }
+
+    /**
+     * Canonicalizes hour strings by stripping leading zeros from integers (e.g. {@code "06"} -&gt; {@code "6"}, {@code "01,02"} -&gt; {@code "1,2"}).
+     *
+     * @param val Comma-separated or single hour string.
+     * @return Canonicalized hour string.
+     */
+    public static String canonicalizeHourValue(String val) {
+        if (val == null || val.isBlank()) {
+            return val;
+        }
+        return Arrays.stream(val.split(",", -1))
+                .map(s -> {
+                    try {
+                        return String.valueOf(Integer.parseInt(s.trim()));
+                    } catch (NumberFormatException e) {
+                        return s.trim();
+                    }
+                })
+                .collect(Collectors.joining(","));
     }
 
     /**
@@ -116,7 +140,16 @@ public class RuleEngine {
             return false;
         }
         try {
-            return rule.operator().test(val, rule.value());
+            String ruleVal = rule.value();
+            if ("timestamp.hour".equals(rule.field())) {
+                ruleVal = canonicalizeHourValue(ruleVal);
+            }
+            if ("number".equals(fieldType(rule.field()))) {
+                BigDecimal fieldNum = new BigDecimal(val);
+                BigDecimal ruleNum = new BigDecimal(ruleVal.trim());
+                return rule.operator().testNumeric(fieldNum, ruleNum);
+            }
+            return rule.operator().test(val, ruleVal);
         } catch (NumberFormatException e) {
             log.warn("Transaction {}: non-numeric value '{}' for field '{}' on rule {}",
                     t.transactionId(), val, rule.field(), rule.ruleId());
@@ -127,6 +160,9 @@ public class RuleEngine {
     /**
      * Extracts the target field from a transaction as a string formatted for evaluation.
      *
+     * <p>Applies {@link String#trim()} to all string fields so accidental leading or trailing
+     * whitespace in incoming JSON payloads does not cause false negatives.
+     *
      * @param t     The transaction.
      * @param field Name of the field or derived property.
      * @return String representation of the field value, or {@code null} if the field is absent.
@@ -134,12 +170,12 @@ public class RuleEngine {
     public String fieldValue(Transaction t, String field) {
         return switch (field) {
             case "amount" -> t.amount() != null ? t.amount().toPlainString() : null;
-            case "currency" -> t.currency();
-            case "country" -> t.country();
-            case "transaction_type" -> t.transactionType();
-            case "account_type" -> t.accountType();
-            case "customer_id" -> t.customerId();
-            case "transaction_id" -> t.transactionId();
+            case "currency" -> t.currency() != null ? t.currency().trim() : null;
+            case "country" -> t.country() != null ? t.country().trim() : null;
+            case "transaction_type" -> t.transactionType() != null ? t.transactionType().trim() : null;
+            case "account_type" -> t.accountType() != null ? t.accountType().trim() : null;
+            case "customer_id" -> t.customerId() != null ? t.customerId().trim() : null;
+            case "transaction_id" -> t.transactionId() != null ? t.transactionId().trim() : null;
             case "timestamp.hour" -> t.timestamp() != null
                     ? String.valueOf(t.timestamp().atZone(ZoneOffset.UTC).getHour())
                     : null;

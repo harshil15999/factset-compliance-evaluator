@@ -235,15 +235,7 @@ public class RuleLoader {
     }
 
     private static String canonicalizeHourValue(String val) {
-        return Arrays.stream(val.split(",", -1))
-                .map(s -> {
-                    try {
-                        return String.valueOf(Integer.parseInt(s.trim()));
-                    } catch (NumberFormatException e) {
-                        return s.trim();
-                    }
-                })
-                .collect(Collectors.joining(","));
+        return RuleEngine.canonicalizeHourValue(val);
     }
 
     private static String require(CSVRecord r, String column) {

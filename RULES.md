@@ -39,8 +39,8 @@ Values are case-sensitive. Copy them exactly.
 |---|---|
 | `gt` | field is greater than value. **Numeric only.** |
 | `lt` | field is less than value. **Numeric only.** |
-| `eq` | field equals value exactly (text, case-sensitive). |
-| `neq` | field does not equal value (text, case-sensitive). |
+| `eq` | field equals value exactly (numeric for `amount`, text for strings; case-sensitive). |
+| `neq` | field does not equal value (numeric for `amount`, text for strings; case-sensitive). |
 | `in` | field equals any item in a comma-separated list. Put the list in quotes. |
 
 For `in`, write the value as `"IR,KP,SY"`. Spaces around each item are ignored.

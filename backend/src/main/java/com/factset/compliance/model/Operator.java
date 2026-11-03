@@ -85,4 +85,24 @@ public enum Operator {
             case IN -> Arrays.stream(ruleValue.split(",", -1)).map(String::trim).anyMatch(fieldValue::equals);
         };
     }
+
+    /**
+     * Evaluates this operator against numeric operands using {@link BigDecimal#compareTo(BigDecimal)}.
+     *
+     * <p>Ensures numerical equality accounts for trailing scale and precision differences
+     * (e.g. {@code 100} matches {@code 100.00}).
+     *
+     * @param fieldValue The numeric value extracted from the transaction.
+     * @param ruleValue  The numeric threshold defined in the compliance rule.
+     * @return {@code true} if the numeric condition is met (breaching the rule); {@code false} otherwise.
+     */
+    public boolean testNumeric(BigDecimal fieldValue, BigDecimal ruleValue) {
+        return switch (this) {
+            case GT -> fieldValue.compareTo(ruleValue) > 0;
+            case LT -> fieldValue.compareTo(ruleValue) < 0;
+            case EQ -> fieldValue.compareTo(ruleValue) == 0;
+            case NEQ -> fieldValue.compareTo(ruleValue) != 0;
+            case IN -> false;
+        };
+    }
 }

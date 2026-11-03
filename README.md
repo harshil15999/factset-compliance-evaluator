@@ -292,9 +292,10 @@ This submission follows the principle: **Be strict on rules (fail-fast), be resi
    - While transaction data is handled leniently, **rules are held to a strict zero-tolerance standard**. A corrupted, malformed, or contradictory rule would silently distort every transaction's compliance status. Therefore, if `rules.csv` contains any syntax error, unknown field, invalid operator, or invalid severity, the engine refuses to start, logs all offending lines to `stderr`, and exits immediately with code `1`.
 
 2. **Field & Operator Compatibility Matrix**:
-   - `gt` and `lt`: Strictly numeric. Only allowed on `amount` and `timestamp.hour`. The comparison value must parse as a valid number (or integer `0..23` for hours).
-   - `eq`, `neq`, `in`: Case-sensitive string comparisons. For `in`, values are parsed as comma-separated items and trimmed.
-   - Vacuous / impossible rules (such as `timestamp.hour lt 0` or `timestamp.hour gt 23`) are rejected during rule loading.
+   - `amount`: Strictly numeric (`gt`, `lt`, `eq`, `neq`) evaluated via `BigDecimal.compareTo` to prevent decimal scale mismatch false negatives (e.g. `100` matches `100.00`).
+   - `timestamp.hour`: Numeric UTC hour `0..23` (`gt`, `lt`, `eq`, `neq`, `in`), with evaluation-time integer canonicalization (e.g. `06` and `6` evaluate identically).
+   - Text fields (`currency`, `country`, `transaction_type`, `account_type`, `customer_id`, `transaction_id`): Case-sensitive string matching (`eq`, `neq`, `in`), with automatic whitespace trimming applied to incoming transaction field values.
+   - Vacuous / impossible rules (such as `timestamp.hour lt 0` or `timestamp.hour gt 23`, `amount lt 0`) are rejected during rule loading.
 
 3. **Rule Independence**:
    - Each rule condition is evaluated independently. A transaction breaches a rule whenever that rule's condition evaluates to `true`. Multiple breaches are collected and reported in strict ascending `rule_id` order.

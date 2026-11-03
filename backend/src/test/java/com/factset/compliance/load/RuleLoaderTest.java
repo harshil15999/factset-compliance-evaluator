@@ -67,14 +67,24 @@ class RuleLoaderTest {
     void unknownFieldAndInvalidOperatorFlagged() throws Exception {
         String data = csv(
                 "R001,bad_field,invalid_field,eq,foo,LOW",
-                "R002,bad_operator_for_number,amount,eq,100,LOW",
+                "R002,bad_operator_for_number,amount,in,100,LOW",
                 "R003,bad_operator_for_string,country,gt,US,LOW"
         );
         List<String> problems = loader.validate(new StringReader(data));
         assertEquals(3, problems.size());
         assertTrue(problems.get(0).contains("unknown field 'invalid_field'"));
-        assertTrue(problems.get(1).contains("operator 'eq' is not valid for field 'amount'"));
+        assertTrue(problems.get(1).contains("operator 'in' is not valid for field 'amount'"));
         assertTrue(problems.get(2).contains("operator 'gt' is not valid for field 'country'"));
+    }
+
+    @Test
+    void amountEqualityAllowed() throws Exception {
+        String data = csv(
+                "R001,exact_amount,amount,eq,1000,LOW",
+                "R002,not_amount,amount,neq,500.50,MEDIUM"
+        );
+        List<String> problems = loader.validate(new StringReader(data));
+        assertEquals(List.of(), problems);
     }
 
     @Test
