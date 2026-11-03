@@ -10,7 +10,7 @@ Evaluates customer financial transactions against regulatory compliance rules an
 
 - [x] **How to run the program.** *(Section 1)*
 - [x] **How to run the tests.** *(Section 2)*
-- [x] **Assumptions made, and how your program handles unexpected or malformed data.** *(Section 3)*
+- [x] **Assumptions made, and how your program handles unexpected or malformed data.** *(Section 3 — includes [Complete Field & Operator Compatibility Matrix](#compatibility-matrix-rules-rulescsv--transactions-transactionsjson))*
 - [x] **What you would do next.** *(Section 4)*
 - [x] **Any tools you used, including AI assistants.** *(Section 5)*
 
