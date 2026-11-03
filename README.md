@@ -23,7 +23,8 @@ Evaluates customer financial transactions against regulatory compliance rules an
 ├── data/                    Canonical data store (single source of truth)
 │   ├── rules.csv            Customer compliance rules dataset
 │   └── transactions.json    Customer transactions dataset
-├── Dockerfile               Multi-stage container build (JRE 17 + Node 20)
+├── Dockerfile               Multi-stage container build (JDK 17 + Maven + Node 20)
+├── .dockerignore           Excludes host build artifacts from container context
 ├── docker-compose.yml       Multi-service orchestration (CLI & Web dashboard)
 ├── docker-entrypoint.sh     Container entrypoint router for CLI & Web service
 ├── run.sh                   Portable runner script for CLI evaluation (Mode A)
@@ -150,6 +151,13 @@ Reviewers and evaluators need **NO local Java, Node, or Maven installed**—only
   docker compose run --rm cli ./run.sh schema
   ```
 
+- **Run automated test suite**:
+  ```bash
+  docker compose run --rm cli ./mvnw -f backend/pom.xml test
+  # or convenience shortcut:
+  docker compose run --rm cli test
+  ```
+
 - **Launch Web Dashboard on port 3000**:
   ```bash
   docker compose up --build
@@ -229,7 +237,10 @@ Execute the automated test suite either via Docker (recommended for zero setup) 
 - **Via Docker (Recommended)**:
   ```bash
   docker compose run --rm cli ./mvnw -f backend/pom.xml test
+  # or convenience shortcut:
+  docker compose run --rm cli test
   ```
+  *(The unified container image includes Temurin JDK 17, Maven 3.9, and pre-cached Maven local dependencies in `/home/node/.m2`, allowing all 46 test cases across 5 test suites to compile and run completely offline in ~2 seconds).*
 
 - **Natively on Host**:
   ```bash
