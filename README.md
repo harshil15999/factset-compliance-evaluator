@@ -30,9 +30,9 @@ Evaluates customer financial transactions against regulatory compliance rules an
 ├── RULES.md                 Field and operator reference guide
 ├── backend/                 Java 17 / Spring Boot compliance engine
 │   ├── pom.xml              Maven configuration with Pyroscope Java Agent
-│   ├── src/main/java/       Loaders, rule engine, REST API, models
+│   ├── src/main/java/       Loaders, rule engine, CLI runner, models
 │   ├── src/main/resources/  Default bundled transactions and rules
-│   └── src/test/java/       Comprehensive test suites (37 unit, integration & profiling tests)
+│   └── src/test/java/       Comprehensive test suites (32 unit, integration & profiling tests)
 └── frontend/                Nuxt 3 / Vue 3 reactive dashboard (port 3000)
 ```
 
@@ -91,7 +91,7 @@ flowchart TD
 
 1. **Entrypoint Dispatch**:
    - In CLI mode (`./run.sh transactions.json rules.csv`), `ComplianceApplication` boots Spring Boot with `WebApplicationType.NONE` — avoiding web container overhead and port collisions.
-   - In Web mode (`./start-web.sh`), `ComplianceService` exposes synchronized in-memory endpoints to the Nuxt 3 dashboard on port 3000.
+   - In Web mode (`./start-web.sh`), the Nuxt 3 server interacts with the compliance engine via headless execution and provides the interactive dashboard on port 3000.
 
 2. **Strict Rule Gatekeeping (`RuleLoader`)**:
    - `rules.csv` is read using Apache Commons CSV.
@@ -176,7 +176,7 @@ Execute the automated test suite using the bundled Maven wrapper:
 ./mvnw -f backend/pom.xml test
 ```
 
-### Test Suite Coverage (37 Tests):
+### Test Suite Coverage (32 Tests):
 The suite tests core logic, boundary conditions, edge cases, performance profiling, and error handling:
 
 1. **`TransactionLoaderTest` (11 tests)**:
@@ -208,12 +208,7 @@ The suite tests core logic, boundary conditions, edge cases, performance profili
    - Correct rendering of `none` for compliant transactions.
    - Strict ascending `rule_id` ordering.
 
-5. **`ComplianceServiceTest` (5 tests)**:
-   - In-memory compliance state evaluation.
-   - Live rule persistence and dynamic re-evaluation.
-   - Atomic replacement of `transactions.json`.
-
-6. **`PyroscopeProfilingTest` (1 test)**:
+5. **`PyroscopeProfilingTest` (1 test)**:
    - Programmatically initializes the `io.pyroscope:agent` Java profiling agent.
    - Evaluates batches of transactions through multiple evaluation loops.
    - Streams live CPU execution samples to the Grafana Pyroscope server on **[http://localhost:4040](http://localhost:4040)**.
@@ -324,9 +319,9 @@ This submission follows the principle: **Be strict on rules (fail-fast), be resi
 
 ## 5. Tools Used
 
-- **Java 17 & Spring Boot 3.3.5**: Core rule engine, loaders, and REST API.
+- **Java 17 & Spring Boot 3.3.5**: Core rule engine, loaders, and headless CLI runner.
 - **Nuxt 3 & Vue 3**: Reactive web dashboard, modal drawer inspector, and client-side validation.
 - **Apache Commons CSV & Jackson (JavaTimeModule)**: Robust CSV and ISO-8601 JSON parsing.
-- **JUnit 5**: Automated test suite (37 tests covering unit, edge-case, and profiling benchmarks).
+- **JUnit 5**: Automated test suite (32 tests covering unit, edge-case, and profiling benchmarks).
 - **Grafana Pyroscope & Java Profiling Agent (`io.pyroscope:agent`)**: Low-overhead continuous CPU profiling and interactive flame graph visualization.
 - **Google Antigravity**: AI assistant for iterative development, architecture design, edge-case analysis, and verification.

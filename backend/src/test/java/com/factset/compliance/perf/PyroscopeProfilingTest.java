@@ -6,19 +6,16 @@ import com.factset.compliance.load.RuleLoader;
 import com.factset.compliance.model.Rule;
 import com.factset.compliance.model.Transaction;
 import io.pyroscope.http.Format;
-import io.pyroscope.javaagent.EventType;
 import io.pyroscope.javaagent.PyroscopeAgent;
 import io.pyroscope.javaagent.config.Config;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
-import java.io.InputStreamReader;
-import java.io.Reader;
+import java.io.StringReader;
 import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -67,7 +64,7 @@ public class PyroscopeProfilingTest {
                     "R006,wire_after_hours,timestamp.hour,gt,18,MEDIUM\n" +
                     "R007,non_usd_personal,currency,neq,USD,LOW\n" +
                     "R008,business_large_odd_country,country,in,\"RU,BY,MM\",LOW\n";
-            List<Rule> rules = new RuleLoader().load(new java.io.StringReader(rulesCsv));
+            List<Rule> rules = new RuleLoader().load(new StringReader(rulesCsv));
 
             // 3. Generate 15,000 synthetic transactions
             List<Transaction> transactions = new ArrayList<>(15_000);
