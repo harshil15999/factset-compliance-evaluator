@@ -8,11 +8,47 @@ Evaluates customer financial transactions against regulatory compliance rules an
 
 ## Submission Checklist
 
-- [x] **How to run the program.** *(Section 1)*
-- [x] **How to run the tests.** *(Section 2)*
-- [x] **Assumptions made, and how your program handles unexpected or malformed data.** *(Section 3 — includes [Complete Field & Operator Compatibility Matrix](#compatibility-matrix-rules-rulescsv--transactions-transactionsjson))*
-- [x] **What you would do next.** *(Section 4)*
-- [x] **Any tools you used, including AI assistants.** *(Section 5)*
+- [x] **How to run the program.** *([Section 1](#1-how-to-run-the-program))*
+- [x] **How to run the tests.** *([Section 2](#2-how-to-run-the-tests))*
+- [x] **Assumptions made, and how your program handles unexpected or malformed data.** *([Section 3](#3-assumptions-made--handling-of-unexpectedmalformed-data) — includes [Complete Field & Operator Compatibility Matrix](#compatibility-matrix-rules-rulescsv--transactions-transactionsjson))*
+- [x] **What you would do next.** *([Section 4](#4-what-would-be-done-next))*
+- [x] **Any tools you used, including AI assistants.** *([Section 5](#5-tools-used))*
+
+---
+
+## Table of Contents
+
+- [Submission Checklist](#submission-checklist)
+- [Table of Contents](#table-of-contents)
+- [Repository Layout](#repository-layout)
+- [Architecture & Request Processing Flow](#architecture--request-processing-flow)
+  - [Processing Pipeline Flowchart](#architecture--request-processing-flow)
+  - [5-Stage Processing Lifecycle](#request-processing-flow)
+- [1. How to Run the Program](#1-how-to-run-the-program)
+  - [Docker Containerized Execution (Recommended — Zero Host Setup)](#docker-containerized-execution-recommended-for-evaluation--zero-host-setup)
+  - [Native Local Execution (Alternative)](#native-local-execution-alternative)
+    - [Prerequisites](#prerequisites)
+    - [Command-Line Evaluation (Mode A)](#command-line-evaluation-mode-a)
+    - [Standard Output Format](#standard-output-format)
+    - [Interactive Web Dashboard (Mode B — Port 3000)](#interactive-web-dashboard-mode-b--port-3000)
+    - [Features Available in the Dashboard](#features-available-in-the-dashboard)
+- [2. How to Run the Tests](#2-how-to-run-the-tests)
+  - [Execution Options (Docker & Native)](#2-how-to-run-the-tests)
+  - [Test Suite Coverage (46 Tests, 75+ Discrete Scenarios)](#test-suite-coverage-46-tests-75-discrete-scenarios)
+  - [Performance Profiling with Grafana Pyroscope (Port 4040)](#performance-profiling-with-grafana-pyroscope-port-4040)
+    - [Key Hotspots Revealed by the Flame Graph](#key-hotspots-revealed-by-the-flame-graph)
+  - [Generating API Documentation (Javadoc)](#generating-api-documentation-javadoc)
+- [3. Assumptions Made & Handling of Unexpected/Malformed Data](#3-assumptions-made--handling-of-unexpectedmalformed-data)
+  - [A. Transactions (`transactions.json`)](#a-transactions-transactionsjson)
+  - [B. Rules (`rules.csv`)](#b-rules-rulescsv)
+  - [Complete Field & Operator Compatibility Matrix](#compatibility-matrix-rules-rulescsv--transactions-transactionsjson)
+    - [Summary of Operational Rules & Boundaries](#summary-of-operational-rules--boundaries)
+- [4. What Would Be Done Next](#4-what-would-be-done-next)
+  - [Cross-Transaction Aggregation, Velocity Rules & Smurfing Detection](#4-what-would-be-done-next)
+  - [Decoupled Two-Tier Architecture & Independent Horizontal Scaling](#4-what-would-be-done-next)
+  - [Shared Validation Library (`compliance-core`) to Prevent Semantic Drift](#4-what-would-be-done-next)
+  - [Target Inter-App Communication (UDS, gRPC, Event-Driven Queues)](#4-what-would-be-done-next)
+- [5. Tools Used](#5-tools-used)
 
 ---
 
