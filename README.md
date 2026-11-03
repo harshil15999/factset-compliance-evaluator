@@ -23,6 +23,9 @@ Evaluates customer financial transactions against regulatory compliance rules an
 ├── data/                    Canonical data store (single source of truth)
 │   ├── rules.csv            Customer compliance rules dataset
 │   └── transactions.json    Customer transactions dataset
+├── Dockerfile               Multi-stage container build (JRE 17 + Node 20)
+├── docker-compose.yml       Multi-service orchestration (CLI & Web dashboard)
+├── docker-entrypoint.sh     Container entrypoint router for CLI & Web service
 ├── run.sh                   Portable runner script for CLI evaluation (Mode A)
 ├── start-web.sh             Portable runner script for Web dashboard on port 3000 (Mode B)
 ├── mvnw                     Maven Wrapper script (no local Maven install needed)
@@ -41,81 +44,83 @@ Evaluates customer financial transactions against regulatory compliance rules an
 
 ## Architecture & Request Processing Flow
 
-The system is decoupled into an immutable domain model, fail-fast loaders, an independent evaluation engine, and a presentation layer:
+The system decouples data ingestion, validation, core evaluation, and presentation into clean, deterministic stages:
 
 ```mermaid
 flowchart TD
-    subgraph Inputs ["1. Input Files"]
-        TXN["transactions.json<br/>(Customer Transactions)"]
-        RULES["rules.csv<br/>(Compliance Rules)"]
+    subgraph Inputs ["Inputs"]
+        TXN["data/transactions.json"]
+        RULES["data/rules.csv"]
     end
 
-    subgraph Entry ["2. Entrypoints"]
-        CLI["Mode A: Headless CLI<br/>(./run.sh / ComplianceApplication)"]
-        WEB["Mode B: Web Dashboard<br/>(./start-web.sh / Nuxt 3)"]
+    subgraph Entrypoints ["Entrypoints"]
+        DOCKER["Docker Container<br/>(docker compose)"]
+        CLI["Native CLI<br/>(./run.sh)"]
+        WEB["Web Dashboard<br/>(Port 3000)"]
     end
 
-    subgraph Ingestion ["3. Ingestion & Validation"]
-        RL["RuleLoader<br/>• Strict header verification<br/>• Operator compatibility matrix<br/>• Hour (0-23) & numeric checks<br/>• Fail-fast on errors"]
-        TL["TransactionLoader<br/>• Element-by-element streaming<br/>• ISO-8601 UTC timestamp parse<br/>• Exact BigDecimal money parse<br/>• Resilient skipping of bad records"]
+    subgraph Pipeline ["Processing Pipeline"]
+        RL["RuleLoader<br/>(Strict Fail-Closed Validation)"]
+        TL["TransactionLoader<br/>(Jackson BigDecimal Streaming)"]
+        RE["RuleEngine<br/>(Core Evaluation & Ceiling Rounding)"]
+        OF["OutputFormatter<br/>(Ascending rule_id Sorting)"]
+
+        RL --> RE
+        TL --> RE
+        RE --> OF
     end
 
-    subgraph Core ["4. Rule Engine"]
-        RE["RuleEngine<br/>• Single source of truth vocabulary<br/>• Extract temporal timestamp.hour<br/>• BigDecimal numeric compare (gt, lt)<br/>• String matching (eq, neq, in)<br/>• Safe missing-field semantics"]
+    subgraph Outputs ["Outputs"]
+        STDOUT["Exact TSV Report<br/>(stdout)"]
+        DASH["Reactive UI Dashboard<br/>(Port 3000)"]
     end
 
-    subgraph Delivery ["5. Formatting & Output"]
-        OF["OutputFormatter<br/>• Sort ascending by rule_id<br/>• Format: rule_id (severity)<br/>• Render 'none' for clean records"]
-        STDOUT["stdout TSV Output<br/>(Candidate Brief Specification)"]
-        DASH["Reactive UI Dashboard<br/>(Summary, Inspector, Rule Admin)"]
-    end
-
+    TXN --> DOCKER
+    RULES --> DOCKER
     TXN --> CLI
     RULES --> CLI
     TXN --> WEB
     RULES --> WEB
 
+    DOCKER --> RL
+    DOCKER --> TL
     CLI --> RL
     CLI --> TL
     WEB --> RL
     WEB --> TL
 
-    RL --> RE
-    TL --> RE
-
-    RE --> OF
     OF --> STDOUT
     RE --> DASH
 ```
 
-### End-to-End Request Lifecycle:
+### Request Processing Flow
 
-1. **Entrypoint Dispatch**:
-   - In CLI mode (`./run.sh transactions.json rules.csv`), `ComplianceApplication` boots Spring Boot with `WebApplicationType.NONE` — avoiding web container overhead and port collisions.
-   - In Web mode (`./start-web.sh`), the Nuxt 3 server interacts with the compliance engine via headless execution and provides the interactive dashboard on port 3000.
+1. **Unified Entrypoints**:
+   - **Docker Container**: `docker compose run --rm cli` evaluates canonical datasets in a zero-setup containerized runtime.
+   - **Native CLI**: `./run.sh [transactions.json] [rules.csv]` (defaults to `data/transactions.json` and `data/rules.csv`) boots Spring Boot with `WebApplicationType.NONE` to eliminate web overhead and port conflicts.
+   - **Web Dashboard**: `./start-web.sh` or `docker compose up` provides an interactive Nuxt 3 web interface on port 3000 for rule management and batch inspection.
 
-2. **Strict Rule Gatekeeping (`RuleLoader`)**:
-   - `rules.csv` is read using Apache Commons CSV.
-   - Header is verified for required columns (`rule_id`, `field`, `operator`, `severity`).
-   - Every condition is validated against the engine vocabulary (`RuleEngine.FIELDS`) and operator matrix (e.g. `gt`/`lt` only permitted on numbers/hours; hours bounded to `0..23`).
-   - **Fail-Fast Safety**: If any rule contains an unknown field, invalid operator, or syntax error, the engine refuses to run, logs all offending rows to `stderr`, and exits code `1`.
+2. **Strict Rule Validation (`RuleLoader`)**:
+   - Reads CSV rules via Apache Commons CSV and validates required schema headers (`rule_id`, `field`, `operator`, `severity`).
+   - Verifies all conditions against the engine vocabulary and operator compatibility matrix (`gt`/`lt` for numbers/hours, `in` for text only, hours bounded to `0..23`).
+   - **Fail-Closed Gatekeeping**: Any invalid operator, malformed value, or unrecognized field immediately halts execution with exit code `1` and descriptive errors on `stderr`.
 
-3. **Resilient Transaction Ingestion (`TransactionLoader`)**:
-   - `transactions.json` is parsed element-by-element via Jackson.
-   - Amounts are deserialized into exact `BigDecimal` numbers to eliminate binary floating-point inaccuracy.
-   - Timestamps are parsed into ISO-8601 UTC `Instant`.
-   - **Resilience**: Corrupted records (missing mandatory IDs, negative amounts, out-of-range dates) are skipped with warnings to `stderr`, allowing all valid customer records to be evaluated.
+3. **Resilient Transaction Parsing (`TransactionLoader`)**:
+   - Streams JSON transactions element-by-element using Jackson to maintain constant memory overhead.
+   - Deserializes monetary values directly into `BigDecimal` to prevent IEEE-754 floating-point inaccuracies.
+   - Parses timestamps into standard ISO-8601 UTC `Instant`.
+   - **Safe Error Isolation**: Corrupted records (missing required IDs, negative amounts, invalid dates) are logged to `stderr` and skipped without aborting evaluation of valid transactions.
 
-4. **Independent Rule Evaluation Loop (`RuleEngine`)**:
-   - Each transaction is evaluated against each active rule independently:
-     - **Field Extraction**: Direct property access or dynamic temporal extraction (`Instant.atZone(ZoneOffset.UTC).getHour()`).
-     - **Relational Matching**: `GT`/`LT` via `BigDecimal.compareTo`; `EQ`/`NEQ`/`IN` via case-sensitive string matching.
-     - **Missing Field Semantics**: If a rule targets an optional field that is absent (`null`), the rule safely evaluates to `false` (no false-positive breaches).
+4. **Core Evaluation & Rounding (`RuleEngine`)**:
+   - Evaluates each transaction against all active rules independently:
+     - **Ceiling Rounding**: Monetary amounts with three or more decimal places round off to the highest two decimal places (`RoundingMode.CEILING`, e.g. `100.121` $\to$ `100.13`) before relational comparisons.
+     - **Relational & Temporal Matching**: Numeric comparisons (`gt`, `lt`, `eq`, `neq`) use `BigDecimal.compareTo`; temporal rules extract the UTC hour (`0..23`); text operators (`eq`, `neq`, `in`) use exact string matching.
+     - **Safe Missing-Field Handling**: Missing optional fields (`null`) safely evaluate to `false` without throwing null-pointer exceptions or creating false-positive breaches.
 
-5. **Deterministic Formatting & Output Delivery (`OutputFormatter`)**:
-   - Collected breaches are sorted in strict ascending `rule_id` order (e.g. `R001 (HIGH), R003 (MEDIUM)`).
-   - Compliant transactions with zero breaches output `none`.
-   - The formatted TSV is written directly to `stdout` with exit code `0`.
+5. **Deterministic Formatting (`OutputFormatter`)**:
+   - Formats detected violations into `rule_id (severity)`, sorted in strict ascending `rule_id` order (e.g. `R001 (HIGH), R003 (MEDIUM)`).
+   - Fully compliant transactions with zero violations output `none`.
+   - Delivers the final TSV report directly to `stdout` with exit code `0`.
 
 ---
 
@@ -430,34 +435,11 @@ This submission follows the principle: **Be strict on rules (fail-fast), be resi
        - *Contract Enforcement*: Enforced through Semantic Versioning (`MAJOR.MINOR.PATCH`), Consumer-Driven Contract testing (Pact / Spring Cloud Contract), and Schema Registry validation on all broker events.
 
 7. **How the Two Apps Will Better Communicate With Each Other**:
-   - *Current Inter-Process Mechanism*:
-     - Nuxt 3 (Nitro server routes) invokes the Java backend on demand via Node.js `child_process.execFile('java', ['-jar', JAR, ...])`.
-     - **Strengths**: Pure headless execution (`WebApplicationType.NONE`), **zero TCP port collisions** (port 8080 remains completely untouched), and absolute process crash isolation (a JVM failure terminates only the child sub-process).
-     - **Bottlenecks**: Incurs JVM cold-start latency (~400–800 ms per request for class loading and bytecode initialization), repeated disk serialization, and lack of HotSpot C2 JIT optimization.
-   - *Target Evolution: 4 Next-Gen Communication Architectures*:
-     - **Option A: Long-Lived Daemon via Unix Domain Sockets (UDS / AF_UNIX)**:
-       - The Java engine boots as a warm daemon binding to a filesystem socket (`data/.compliance.sock`) using Java 16+ `java.net.UnixDomainSocketAddress`.
-       - Nuxt 3 connects via Node's native `node:net` module with framing (NDJSON or binary).
-       - **Benefits**: Sub-millisecond turnaround (< 1 ms), full HotSpot C2 JIT acceleration, **zero TCP port collisions**, and full OS-level process crash isolation.
-     - **Option B: High-Performance gRPC / Protobuf Streaming Server**:
-       - Strongly-typed IDL contracts (`compliance.proto`) shared across TypeScript and Java.
-       - Supports bi-directional streaming for massive multi-million transaction batches with native HTTP/2 backpressure and flow control.
-     - **Option C: GraalVM Native Image with Embedded C-ABI (FFI)**:
-       - Ahead-of-Time compiles the rule engine into a native shared library (`libcompliance.so`) called directly in-process via Node-API or `bun:ffi` for microsecond latency (~15 µs).
-     - **Option D: Event-Driven Asynchronous Message Broker (Apache Kafka / RabbitMQ)**:
-       - Decoupled enterprise architecture: Web UI handles user interaction and publishes to `compliance.evaluation.requests`; a horizontally auto-scaled fleet of Java worker pods processes events in parallel and returns results via SSE/WebSockets.
-
-#### Inter-Application Architectural Comparison Matrix:
-
-| Architectural Dimension | Current CLI (`child_process`) | Option A: Unix Domain Sockets (UDS) | Option B: gRPC / Protobuf Streaming | Option C: GraalVM Native FFI (In-Process) | Option D: Event Broker (Kafka / RabbitMQ) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Throughput (Tx / sec)** | Very Low (~1,500 tx/s, limited by process spawn rate) | **Very High** (~180,000 tx/s, warm JVM C2 JIT) | **Ultra High** (~220,000 tx/s, binary stream + backpressure) | **Maximum** (~350,000 tx/s, zero-copy native memory) | **Massive Distributed** (>1,000,000 tx/s across $N$ workers) |
-| **P99 Latency** | 450 ms – 900 ms (JVM cold start) | **0.8 ms – 2.5 ms** | **1.2 ms – 4.0 ms** | **0.02 ms – 0.08 ms** (Microsecond) | 12 ms – 45 ms (Broker transit & ack) |
-| **Port Collision Risk** | **ZERO** (No network listener) | **ZERO** (Filesystem node only, no TCP) | Low / Configurable (or ZERO if run on UDS) | **ZERO** (Embedded in-process library) | **ZERO** (Applications act solely as broker clients) |
-| **Fault Isolation & Blast Radius** | **Total** (OS sub-process boundary) | **High** (IPC process boundary; daemon failure isolated from UI) | **High** (Network/IPC boundary; isolated container) | **None** (Native segfault crashes Node.js host process) | **Total** (Durable message buffer; full node crash tolerance) |
-| **Implementation Complexity** | Minimal (Existing baseline) | Low (Node `net` + Java 16 `UnixDomainSocketAddress`) | Medium (Protobuf IDL, stubs, gRPC client/server) | Very High (GraalVM AOT, JNI/C-ABI, V8 memory bridging) | High (Broker infra, schema registry, SSE/WS UI flow) |
-| **Memory Footprint** | Churn: ~120 MB per invocation, freed at exit | Stable: ~90 MB persistent JVM heap | Stable: ~110 MB persistent Netty/JVM heap | **Minimal**: ~28 MB static RSS inside Node process | Distributed: ~35 MB UI + ~150 MB per worker pod |
-| **Deployment Boundary** | Single Node | Single Node / Shared Volume Container | Local or Multi-Node Distributed | Single Node / Single Binary | Multi-Node Elastic Cloud / Kubernetes |
+   - **Current Implementation**: Nuxt 3 invokes the Java engine on demand via Node.js `child_process.execFile`. This provides pure process isolation and zero TCP port collisions, but incurs JVM startup overhead on each invocation.
+   - **Target Communication Architectures**:
+     - **Unix Domain Sockets (UDS / AF_UNIX)**: Run the Java engine as a warm background daemon communicating over a filesystem socket (`.compliance.sock`). Yields sub-millisecond responses and full HotSpot C2 JIT optimization with zero TCP port binding.
+     - **gRPC / Protocol Buffers**: Strongly-typed schema contract (`compliance.proto`) with binary streaming for high-throughput batch evaluation and native backpressure.
+     - **Event-Driven Broker (Kafka / RabbitMQ)**: Decouple the UI from matching workers via a durable message queue for elastic horizontal auto-scaling and resilient asynchronous processing.
 
 ---
 
