@@ -38,6 +38,86 @@ Evaluates customer financial transactions against regulatory compliance rules an
 
 ---
 
+## Architecture & Request Processing Flow
+
+The system is decoupled into an immutable domain model, fail-fast loaders, an independent evaluation engine, and a presentation layer:
+
+```mermaid
+flowchart TD
+    subgraph Inputs ["1. Input Files"]
+        TXN["transactions.json<br/>(Customer Transactions)"]
+        RULES["rules.csv<br/>(Compliance Rules)"]
+    end
+
+    subgraph Entry ["2. Entrypoints"]
+        CLI["Mode A: Headless CLI<br/>(./run.sh / ComplianceApplication)"]
+        WEB["Mode B: Web Dashboard<br/>(./start-web.sh / Nuxt 3)"]
+    end
+
+    subgraph Ingestion ["3. Ingestion & Validation"]
+        RL["RuleLoader<br/>• Strict header verification<br/>• Operator compatibility matrix<br/>• Hour (0-23) & numeric checks<br/>• Fail-fast on errors"]
+        TL["TransactionLoader<br/>• Element-by-element streaming<br/>• ISO-8601 UTC timestamp parse<br/>• Exact BigDecimal money parse<br/>• Resilient skipping of bad records"]
+    end
+
+    subgraph Core ["4. Rule Engine"]
+        RE["RuleEngine<br/>• Single source of truth vocabulary<br/>• Extract temporal timestamp.hour<br/>• BigDecimal numeric compare (gt, lt)<br/>• String matching (eq, neq, in)<br/>• Safe missing-field semantics"]
+    end
+
+    subgraph Delivery ["5. Formatting & Output"]
+        OF["OutputFormatter<br/>• Sort ascending by rule_id<br/>• Format: rule_id (severity)<br/>• Render 'none' for clean records"]
+        STDOUT["stdout TSV Output<br/>(Candidate Brief Specification)"]
+        DASH["Reactive UI Dashboard<br/>(Summary, Inspector, Rule Admin)"]
+    end
+
+    TXN --> CLI
+    RULES --> CLI
+    TXN --> WEB
+    RULES --> WEB
+
+    CLI --> RL
+    CLI --> TL
+    WEB --> RL
+    WEB --> TL
+
+    RL --> RE
+    TL --> RE
+
+    RE --> OF
+    OF --> STDOUT
+    RE --> DASH
+```
+
+### End-to-End Request Lifecycle:
+
+1. **Entrypoint Dispatch**:
+   - In CLI mode (`./run.sh transactions.json rules.csv`), `ComplianceApplication` boots Spring Boot with `WebApplicationType.NONE` — avoiding web container overhead and port collisions.
+   - In Web mode (`./start-web.sh`), `ComplianceService` exposes synchronized in-memory endpoints to the Nuxt 3 dashboard on port 3000.
+
+2. **Strict Rule Gatekeeping (`RuleLoader`)**:
+   - `rules.csv` is read using Apache Commons CSV.
+   - Header is verified for required columns (`rule_id`, `field`, `operator`, `severity`).
+   - Every condition is validated against the engine vocabulary (`RuleEngine.FIELDS`) and operator matrix (e.g. `gt`/`lt` only permitted on numbers/hours; hours bounded to `0..23`).
+   - **Fail-Fast Safety**: If any rule contains an unknown field, invalid operator, or syntax error, the engine refuses to run, logs all offending rows to `stderr`, and exits code `1`.
+
+3. **Resilient Transaction Ingestion (`TransactionLoader`)**:
+   - `transactions.json` is parsed element-by-element via Jackson.
+   - Amounts are deserialized into exact `BigDecimal` numbers to eliminate binary floating-point inaccuracy.
+   - Timestamps are parsed into ISO-8601 UTC `Instant`.
+   - **Resilience**: Corrupted records (missing mandatory IDs, negative amounts, out-of-range dates) are skipped with warnings to `stderr`, allowing all valid customer records to be evaluated.
+
+4. **Independent Rule Evaluation Loop (`RuleEngine`)**:
+   - Each transaction is evaluated against each active rule independently:
+     - **Field Extraction**: Direct property access or dynamic temporal extraction (`Instant.atZone(ZoneOffset.UTC).getHour()`).
+     - **Relational Matching**: `GT`/`LT` via `BigDecimal.compareTo`; `EQ`/`NEQ`/`IN` via case-sensitive string matching.
+     - **Missing Field Semantics**: If a rule targets an optional field that is absent (`null`), the rule safely evaluates to `false` (no false-positive breaches).
+
+5. **Deterministic Formatting & Output Delivery (`OutputFormatter`)**:
+   - Collected breaches are sorted in strict ascending `rule_id` order (e.g. `R001 (HIGH), R003 (MEDIUM)`).
+   - Compliant transactions with zero breaches output `none`.
+   - The formatted TSV is written directly to `stdout` with exit code `0`.
+
+---
+
 ## 1. How to Run the Program
 
 ### Prerequisites
