@@ -55,7 +55,7 @@ public class TransactionLoader {
             .build();
 
     /**
-     * Parses transactions from an {@link InputStream}, skipping invalid or duplicate records with warnings.
+     * Parses transactions from an {@link InputStream}, skipping invalid or duplicate records with error logs.
      *
      * @param in Stream providing the root JSON object containing a {@code "transactions"} array.
      * @return A list of successfully parsed and validated {@link Transaction} instances.
@@ -74,25 +74,31 @@ public class TransactionLoader {
             index++;
             if (node == null || node.isNull() || !node.isObject()) {
                 skipped++;
-                log.warn("Skipping non-object transaction element at position {}", index);
+                log.error("Skipping non-object transaction element at position {}", index);
                 continue;
             }
+            JsonNode idNode = node.get("transaction_id");
+            boolean missingId = (idNode == null || idNode.isNull() || idNode.asText().isBlank());
             try {
                 Transaction t = mapper.treeToValue(node, Transaction.class);
                 List<String> problems = new ArrayList<>();
                 validateRecord(t, index, problems);
                 if (!problems.isEmpty()) {
                     skipped++;
-                    log.warn("Skipping malformed transaction at position {}: {}", index, String.join("; ", problems));
+                    log.error("Skipping malformed transaction at position {}: {}", index, String.join("; ", problems));
                 } else if (t.transactionId() != null && !seenIds.add(t.transactionId())) {
                     skipped++;
-                    log.warn("Skipping duplicate transaction_id '{}' at position {}", t.transactionId(), index);
+                    log.error("Skipping duplicate transaction_id '{}' at position {}", t.transactionId(), index);
                 } else {
                     transactions.add(t);
                 }
             } catch (Exception e) {
                 skipped++;
-                log.warn("Skipping malformed transaction at position {}: {}", index, e.getMessage());
+                if (missingId) {
+                    log.error("Skipping malformed transaction at position {}: transactions[{}]: missing transaction_id", index, index);
+                } else {
+                    log.error("Skipping malformed transaction at position {}: {}", index, e.getMessage());
+                }
             }
         }
         log.info("Loaded {} transactions, skipped {} element(s)", transactions.size(), skipped);
@@ -131,6 +137,8 @@ public class TransactionLoader {
                 problems.add("transactions[" + index + "]: expected a JSON object element");
                 continue;
             }
+            JsonNode idNode = node.get("transaction_id");
+            boolean missingId = (idNode == null || idNode.isNull() || idNode.asText().isBlank());
             try {
                 Transaction t = mapper.treeToValue(node, Transaction.class);
                 validateRecord(t, index, problems);  // all per-record checks
@@ -139,7 +147,11 @@ public class TransactionLoader {
                     problems.add("transactions[" + index + "]: duplicate transaction_id '" + id + "'");
                 }
             } catch (Exception e) {
-                problems.add("transactions[" + index + "]: " + e.getMessage());
+                if (missingId) {
+                    problems.add("transactions[" + index + "]: missing transaction_id");
+                } else {
+                    problems.add("transactions[" + index + "]: " + e.getMessage());
+                }
             }
         }
         return problems;

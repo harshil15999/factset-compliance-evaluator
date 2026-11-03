@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
@@ -24,6 +25,10 @@ import java.util.stream.Collectors;
  * <p>If a rule tests an optional transaction field that is not present (or {@code null}) on a
  * given transaction (e.g. {@code currency neq USD} on a transaction without currency), the rule
  * evaluates to {@code false} (no breach). A diagnostic warning is logged to diagnostics.
+ *
+ * <h3>Monetary Amount Rounding Semantics:</h3>
+ * <p>Monetary amounts are evaluated up to two decimal places. If three or more decimal places
+ * are present, values are rounded off to the highest two decimal places (ceiling rounding).
  */
 @Component
 public class RuleEngine {
@@ -106,6 +111,27 @@ public class RuleEngine {
     }
 
     /**
+     * Rounds a monetary amount to exactly two decimal places.
+     *
+     * <p>If the amount has three or more decimal places (scale > 2), it is rounded off to the highest
+     * two decimal places using {@link java.math.RoundingMode#CEILING}. Otherwise (e.g. integers or amounts
+     * with 1 or 2 decimals), it is formatted to exactly two decimal places (e.g. {@code 15000.00}) using
+     * {@link java.math.RoundingMode#HALF_UP}.
+     *
+     * @param amount The monetary amount to round, may be {@code null}.
+     * @return The rounded amount formatted to two decimal places, or {@code null} if {@code amount} is {@code null}.
+     */
+    public static BigDecimal roundAmount(BigDecimal amount) {
+        if (amount == null) {
+            return null;
+        }
+        if (amount.scale() > 2) {
+            return amount.setScale(2, java.math.RoundingMode.CEILING);
+        }
+        return amount.setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /**
      * Evaluates a collection of rules against a transaction, collecting all breached rules.
      *
      * @param t     The transaction to evaluate.
@@ -128,6 +154,9 @@ public class RuleEngine {
     /**
      * Tests whether a single compliance rule condition is breached by a transaction.
      *
+     * <p>For numeric comparisons (such as monetary amounts), values are rounded to two decimal
+     * places (with ceiling rounding applied for three or more decimals) before evaluation.
+     *
      * @param t    The transaction under test.
      * @param rule The rule condition to evaluate.
      * @return {@code true} if the transaction breaches the rule; {@code false} otherwise.
@@ -145,8 +174,8 @@ public class RuleEngine {
                 ruleVal = canonicalizeHourValue(ruleVal);
             }
             if ("number".equals(fieldType(rule.field()))) {
-                BigDecimal fieldNum = new BigDecimal(val);
-                BigDecimal ruleNum = new BigDecimal(ruleVal.trim());
+                BigDecimal fieldNum = roundAmount(new BigDecimal(val));
+                BigDecimal ruleNum = roundAmount(new BigDecimal(ruleVal.trim()));
                 return rule.operator().testNumeric(fieldNum, ruleNum);
             }
             return rule.operator().test(val, ruleVal);
@@ -160,6 +189,9 @@ public class RuleEngine {
     /**
      * Extracts the target field from a transaction as a string formatted for evaluation.
      *
+     * <p>Monetary amounts are rounded to two decimal places (rounding to the highest two decimal
+     * places if three or more decimal places are present) via {@link #roundAmount(BigDecimal)}.
+     *
      * <p>Applies {@link String#trim()} to all string fields so accidental leading or trailing
      * whitespace in incoming JSON payloads does not cause false negatives.
      *
@@ -169,7 +201,7 @@ public class RuleEngine {
      */
     public String fieldValue(Transaction t, String field) {
         return switch (field) {
-            case "amount" -> t.amount() != null ? t.amount().toPlainString() : null;
+            case "amount" -> t.amount() != null ? roundAmount(t.amount()).toPlainString() : null;
             case "currency" -> t.currency() != null ? t.currency().trim() : null;
             case "country" -> t.country() != null ? t.country().trim() : null;
             case "transaction_type" -> t.transactionType() != null ? t.transactionType().trim() : null;

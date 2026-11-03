@@ -1,7 +1,7 @@
 import { promises as fs, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { JAR, TX, RULES, ROOT_RULES, runJava } from '../utils/backend'
+import { JAR, RULES, ROOT_RULES, runJava } from '../utils/backend'
 
 // Quote a cell only when needed (comma, quote, newline).
 const cell = (v: unknown) => {
@@ -39,15 +39,23 @@ export default defineEventHandler(async (event) => {
     await fs.writeFile(candPath, candidate)
     let res
     try {
-      res = await runJava(['-jar', JAR, TX, candPath])
+      res = await runJava(['-jar', JAR, 'validate-rules', candPath])
     } catch (e: any) {
       throw createError({ statusCode: 500, statusMessage: e.message, message: e.message })
     }
     if (res.code !== 0) {
-      const problems = (res.stderr + '\n' + res.stdout)
+      const lines = (res.stdout + '\n' + res.stderr)
         .split('\n')
         .map((l) => l.trim())
-        .filter((l) => l && (l.includes('rules row') || l.includes('problem') || l.includes('ERROR')))
+        .map((l) => l.replace(/^(?:\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+)?(?:[A-Z]+\s+\S+\s+-\s+)/, ''))
+        .filter((l) => {
+          if (!l) return false
+          if (/problem\(s\)\s+found/i.test(l)) return false
+          if (/refusing to run/i.test(l)) return false
+          if (/^OK:/i.test(l)) return false
+          return true
+        })
+      const problems = Array.from(new Set(lines))
       return { ok: false, problems: problems.length ? problems : ['Rule validation failed'] }
     }
     // Atomic replace: stage next to the real file so rename stays on one filesystem.

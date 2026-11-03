@@ -187,6 +187,21 @@ class RuleLoaderTest {
     }
 
     @Test
+    void exactDiagnosticErrorFormattingAttributions() throws Exception {
+        String data = csv(
+                "R001,negative_amount,amount,gt,-50,HIGH",
+                "R001,duplicate_id,country,gt,US,HIGH",
+                "R003,out_of_range_hour,timestamp.hour,gt,25,HIGH"
+        );
+        List<String> problems = loader.validate(new StringReader(data));
+        assertEquals(4, problems.size());
+        assertEquals("rules row 1: amount threshold cannot be negative (was -50)", problems.get(0));
+        assertEquals("rules row 2: duplicate rule_id 'R001'", problems.get(1));
+        assertEquals("rules row 2: operator 'gt' is not valid for field 'country' (allowed: [eq, in, neq])", problems.get(2));
+        assertEquals("rules row 3: timestamp.hour threshold 25 is not an hour 0-23", problems.get(3));
+    }
+
+    @Test
     void emptyCsvAndMissingHeaderAreFlagged() throws Exception {
         List<String> pEmpty = loader.validate(new StringReader(""));
         assertEquals(1, pEmpty.size());

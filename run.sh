@@ -3,6 +3,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JAR="${ROOT}/backend/target/transaction-compliance-evaluator-0.1.0.jar"
+DATA_DIR="${ROOT}/data"
+DEFAULT_TX="${DATA_DIR}/transactions.json"
+DEFAULT_RULES="${DATA_DIR}/rules.csv"
+
+# Ensure runtime logs directory exists so Logback never fails on appender initialization
+mkdir -p "${ROOT}/logs"
+
+# Check for Java 17+
+if ! command -v java >/dev/null 2>&1; then
+  echo "[ERROR] Java runtime ('java') not found on PATH." >&2
+  echo "[FIX]   Install OpenJDK 17 on Ubuntu with:" >&2
+  echo "        sudo apt update && sudo apt install -y openjdk-17-jre-headless" >&2
+  exit 1
+fi
 
 # Build backend jar if missing
 if [ ! -f "$JAR" ]; then
@@ -10,25 +24,23 @@ if [ ! -f "$JAR" ]; then
   "${ROOT}/mvnw" -f "${ROOT}/backend/pom.xml" package -DskipTests -q
 fi
 
-# Execute compliance evaluator with provided files or default customer files
 if [ "$#" -eq 0 ]; then
-  # Auto-start Web UI daemon in background if not already active
-  if ! nc -z 127.0.0.1 3000 2>/dev/null && ! curl -s http://127.0.0.1:3000/ >/dev/null 2>&1; then
-    if [ -f "${ROOT}/frontend/.output/server/index.mjs" ]; then
-      HOST=0.0.0.0 PORT=3000 nohup node "${ROOT}/frontend/.output/server/index.mjs" >/tmp/compliance-ui.log 2>&1 &
-      sleep 1
-    fi
+  # No arguments: evaluate default data files in data/
+  exec java -jar "$JAR" "$DEFAULT_TX" "$DEFAULT_RULES"
+elif [ "$1" = "schema" ]; then
+  exec java -jar "$JAR" schema
+elif [ "$1" = "validate" ]; then
+  if [ "$#" -eq 3 ]; then
+    exec java -jar "$JAR" validate "$2" "$3"
+  else
+    exec java -jar "$JAR" validate "$DEFAULT_TX" "$DEFAULT_RULES"
   fi
-
-  echo "[INFO] Web UI Dashboard: http://localhost:3000" >&2
-  echo "[INFO] Pyroscope Profiler: http://localhost:4040" >&2
-
-  # Attempt to launch default browser if graphical display environment is present
-  if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
-    (xdg-open "http://localhost:3000" >/dev/null 2>&1 || true) &
+elif [ "$1" = "validate-rules" ]; then
+  if [ "$#" -ge 2 ]; then
+    exec java -jar "$JAR" validate-rules "$2"
+  else
+    exec java -jar "$JAR" validate-rules "$DEFAULT_RULES"
   fi
-
-  exec java -jar "$JAR" "${ROOT}/transactions.json" "${ROOT}/rules.csv"
 else
   exec java -jar "$JAR" "$@"
 fi

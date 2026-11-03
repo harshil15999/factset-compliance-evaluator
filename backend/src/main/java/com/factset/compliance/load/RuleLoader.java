@@ -64,13 +64,13 @@ public class RuleLoader {
                     checkFieldOperatorValue(rule, record.getRecordNumber(), rowProblems);
                     if (!rowProblems.isEmpty()) {
                         skipped++;
-                        log.warn("Skipping invalid rule on line {}: {}", record.getRecordNumber(), String.join("; ", rowProblems));
+                        log.error("Skipping invalid rule on line {}: {}", record.getRecordNumber(), String.join("; ", rowProblems));
                     } else {
                         rules.add(rule);
                     }
                 } catch (IllegalArgumentException e) {
                     skipped++;
-                    log.warn("Skipping malformed rule on line {}: {}", record.getRecordNumber(), e.getMessage());
+                    log.error("Skipping malformed rule on line {}: {}", record.getRecordNumber(), e.getMessage());
                 }
             }
         }
@@ -161,7 +161,7 @@ public class RuleLoader {
         }
         Set<String> allowed = RuleEngine.allowedOperators(field);
         if (!allowed.contains(op)) {
-            problems.add(at + "operator '" + op + "' is not valid for field '" + field + "' (allowed: " + allowed + ")");
+            problems.add(at + "operator '" + op + "' is not valid for field '" + field + "' (allowed: " + allowed.stream().sorted().toList() + ")");
             return;
         }
         if (value == null || value.isBlank()) {
@@ -192,8 +192,8 @@ public class RuleLoader {
                 }
                 case "hour" -> {
                     if (!isHour(item)) {
-                        problems.add(at + "value '" + item + "' is not an hour "
-                                + RuleEngine.HOUR_MIN + "-" + RuleEngine.HOUR_MAX + " for field '" + field + "'");
+                        problems.add(at + field + " threshold " + item + " is not an hour "
+                                + RuleEngine.HOUR_MIN + "-" + RuleEngine.HOUR_MAX);
                     } else {
                         int h = Integer.parseInt(item.trim());
                         // In-range but vacuous: gt MAX and lt MIN can never match.

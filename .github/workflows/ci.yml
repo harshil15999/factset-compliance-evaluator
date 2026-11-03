@@ -36,7 +36,7 @@ jobs:
 
       - name: Verify CLI Output Format
         run: |
-          ./run.sh transactions.json rules.csv > output.tsv
+          ./run.sh > output.tsv
           # Verify TSV header matches specification
           head -n 1 output.tsv | grep -P "^Transaction\tBreached Rules$"
           # Verify clean transactions print none
@@ -120,7 +120,7 @@ jobs:
           echo "rule_id,field,operator,severity" > bad_rules.csv
           echo "R999,country,gt,HIGH" >> bad_rules.csv
           set +e
-          java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar transactions.json bad_rules.csv 2> err.log
+          java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar data/transactions.json bad_rules.csv 2> err.log
           CODE=$?
           set -e
           if [ "$CODE" -ne 1 ]; then

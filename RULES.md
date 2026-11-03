@@ -3,8 +3,7 @@
 Written for anyone who edits `rules.csv` and is not a developer. A new rule is a new row in the CSV.
 No code change, no rebuild of the rules logic.
 
-Start from `rules-template.csv` (same header, two valid example rows). Copy a row into
-`backend/src/main/resources/rules.csv` and edit it.
+Start from `data/rules.csv`. Add a new row to `data/rules.csv` and edit it.
 
 ## Columns
 
@@ -71,14 +70,14 @@ R009,early_hours_transaction,timestamp.hour,lt,6,MEDIUM
 
 ## Check your edits before running
 
-```
-java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar validate
+```bash
+./run.sh validate
 ```
 
 or, with your own files (transactions first, then rules):
 
-```
-java -jar backend/target/transaction-compliance-evaluator-0.1.0.jar validate transactions.json rules.csv
+```bash
+./run.sh validate path/to/transactions.json path/to/rules.csv
 ```
 
 With no file arguments it checks the bundled copies. Validate lists **every** problem it finds (unknown

@@ -136,4 +136,52 @@ class RuleEngineTest {
         Transaction t07 = tx("T2", "2024-01-15T07:00:00Z", new BigDecimal("50"), "USD", "US", "C1", "P", "W");
         assertTrue(engine.breaches(t07, List.of(eq06, inHours)).isEmpty());
     }
+
+    @Test
+    void amountRoundsToHighestTwoDecimalPlaces() {
+        Rule eq10013 = new Rule("R1", "eq10013", "amount", Operator.EQ, "100.13", Severity.HIGH);
+        Rule eq10012 = new Rule("R2", "eq10012", "amount", Operator.EQ, "100.12", Severity.HIGH);
+        Rule gt10012 = new Rule("R3", "gt10012", "amount", Operator.GT, "100.12", Severity.HIGH);
+
+        // Transaction amount 100.121 rounds up to 100.13 and breaches amount eq 100.13
+        Transaction t1 = tx("T1", "2024-01-15T12:00:00Z", new BigDecimal("100.121"), "USD", "US", "C1", "P", "W");
+        assertEquals(List.of(eq10013), engine.breaches(t1, List.of(eq10013)));
+
+        // Transaction amount 100.120 rounds to 100.12 and breaches amount eq 100.12
+        Transaction t2 = tx("T2", "2024-01-15T12:00:00Z", new BigDecimal("100.120"), "USD", "US", "C1", "P", "W");
+        assertEquals(List.of(eq10012), engine.breaches(t2, List.of(eq10012)));
+
+        // Transaction amount 100.123 breaches amount gt 100.12 and matches amount eq 100.13
+        Transaction t3 = tx("T3", "2024-01-15T12:00:00Z", new BigDecimal("100.123"), "USD", "US", "C1", "P", "W");
+        assertEquals(List.of(eq10013, gt10012), engine.breaches(t3, List.of(eq10013, gt10012)));
+
+        // Rule threshold 100.121 also rounds to 100.13
+        Rule ruleThresh100121 = new Rule("R4", "ruleThresh100121", "amount", Operator.EQ, "100.121", Severity.HIGH);
+        Transaction tTarget = tx("T4", "2024-01-15T12:00:00Z", new BigDecimal("100.13"), "USD", "US", "C1", "P", "W");
+        assertEquals(List.of(ruleThresh100121), engine.breaches(tTarget, List.of(ruleThresh100121)));
+
+        // fieldValue rounds 3-decimal amount to 2 decimal places
+        assertEquals("100.13", engine.fieldValue(t1, "amount"));
+    }
+
+    @Test
+    void integerAmountsNormalizedToTwoDecimalPlacesAndMatchBothIntegerAndDecimalRules() {
+        Transaction tInt = tx("T1", "2024-01-15T12:00:00Z", new BigDecimal("15000"), "USD", "US", "C1", "P", "W");
+
+        // fieldValue normalizes amounts to standard two decimal places format
+        assertEquals("15000.00", engine.fieldValue(tInt, "amount"));
+        assertEquals(2, RuleEngine.roundAmount(new BigDecimal("15000")).scale());
+        assertEquals(new BigDecimal("15000.00"), RuleEngine.roundAmount(new BigDecimal("15000")));
+
+        // Rule with integer threshold
+        Rule gt10000 = new Rule("R1", "gt10000", "amount", Operator.GT, "10000", Severity.HIGH);
+        Rule eq15000 = new Rule("R2", "eq15000", "amount", Operator.EQ, "15000", Severity.HIGH);
+
+        // Rule with decimal threshold
+        Rule eq15000Dec = new Rule("R3", "eq15000Dec", "amount", Operator.EQ, "15000.00", Severity.HIGH);
+        Rule neq15000 = new Rule("R4", "neq15000", "amount", Operator.NEQ, "15000", Severity.LOW);
+
+        List<Rule> breaches = engine.breaches(tInt, List.of(gt10000, eq15000, eq15000Dec, neq15000));
+        assertEquals(List.of(gt10000, eq15000, eq15000Dec), breaches);
+    }
 }
