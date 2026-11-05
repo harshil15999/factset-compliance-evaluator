@@ -17,6 +17,7 @@ dist/
 
 # Temporary files, logs, caches
 *.log
+logs/
 *.tmp
 .DS_Store
 .idea/

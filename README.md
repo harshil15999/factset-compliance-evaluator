@@ -26,6 +26,14 @@ Evaluates customer financial transactions against regulatory compliance rules an
   - [5-Stage Processing Lifecycle](#request-processing-flow)
 - [1. How to Run the Program](#1-how-to-run-the-program)
   - [Docker Containerized Execution (Recommended — Zero Host Setup)](#docker-containerized-execution-recommended-for-evaluation--zero-host-setup)
+    - [Docker Modes Summary Matrix](#docker-modes-summary-matrix)
+    - [Mode A: Default Headless CLI Evaluation (`cli` service)](#mode-a-default-headless-cli-evaluation-cli-service)
+    - [Mode A.1: Custom Dataset Evaluation (`cli` service with arguments)](#mode-a1-custom-dataset-evaluation-cli-service-with-arguments)
+    - [Mode A.2: Pre-Flight Input Validation (`cli` service)](#mode-a2-pre-flight-input-validation-cli-service)
+    - [Mode A.3: Schema Vocabulary Introspection (`cli` service)](#mode-a3-schema-vocabulary-introspection-cli-service)
+    - [Mode A.4: Containerized Automated Test Suite (`cli` service)](#mode-a4-containerized-automated-test-suite-cli-service)
+    - [Mode B: Interactive Web Dashboard (`web` service — Port 3000)](#mode-b-interactive-web-dashboard-web-service--port-3000)
+    - [Debug Mode: Interactive Container Shell (`cli` service)](#debug-mode-interactive-container-shell-cli-service)
   - [Native Local Execution (Alternative)](#native-local-execution-alternative)
     - [Prerequisites](#prerequisites)
     - [Command-Line Evaluation (Mode A)](#command-line-evaluation-mode-a)
@@ -165,40 +173,145 @@ flowchart TD
 
 ### Docker Containerized Execution (Recommended for Evaluation — Zero Host Setup)
 
-Reviewers and evaluators need **NO local Java, Node, or Maven installed**—only Docker and Docker Compose. The entire solution is fully containerized and zero-setup:
+Reviewers and evaluators need **NO local Java, Node, or Maven installed**—only Docker and Docker Compose. The entire solution is fully containerized and zero-setup.
 
-- **Run CLI evaluation** (prints exact TSV report):
-  ```bash
-  docker compose run --rm cli
-  ```
+A single multi-stage [Dockerfile](file:///home/battlestarcoder/Downloads/exam/Dockerfile) packages both the Java 17 headless compliance engine and the Nuxt 3 web dashboard into a minimal, non-root Linux image (`transaction-compliance-evaluator:latest`). The orchestration file ([docker-compose.yml](file:///home/battlestarcoder/Downloads/exam/docker-compose.yml)) and router script ([docker-entrypoint.sh](file:///home/battlestarcoder/Downloads/exam/docker-entrypoint.sh)) define two primary operational modes (**Mode A: Headless CLI** and **Mode B: Interactive Web Dashboard**), along with specialized diagnostic sub-modes.
 
-- **Run with custom files**:
-  ```bash
-  docker compose run --rm cli ./run.sh path/to/tx.json path/to/rules.csv
-  ```
+#### Docker Modes Summary Matrix
 
-- **Run pre-flight validation**:
-  ```bash
-  docker compose run --rm cli ./run.sh validate
-  ```
+| Mode | Docker Service | Command | What We Are Doing in This Mode | Primary Output / Port |
+|---|---|---|---|---|
+| **Mode A** | `cli` | `docker compose run --rm cli` | Headless batch compliance evaluation of canonical datasets (`data/transactions.json` against `data/rules.csv`) | TSV report to `stdout` (`exit 0`) |
+| **Mode A.1** | `cli` | `docker compose run --rm cli ./run.sh <tx> <rules>` | Evaluates user-specified custom transaction and rule datasets mounted into the container | TSV report to `stdout` (`exit 0`) |
+| **Mode A.2** | `cli` | `docker compose run --rm cli ./run.sh validate` | Pre-flight dry-run validation of schema, domain bounds, and field invariants without report output | Diagnostic errors on `stderr` (`exit 0/1`) |
+| **Mode A.3** | `cli` | `docker compose run --rm cli ./run.sh schema` | Machine-readable schema introspection of all supported fields, data types, operators, and bounds | JSON schema to `stdout` (`exit 0`) |
+| **Mode A.4** | `cli` | `docker compose run --rm cli test` | Runs the full 46-test automated suite using containerized JDK 17, Maven 3.9, and offline cache | Test results to `stdout` (`exit 0`) |
+| **Mode B** | `web` | `docker compose up --build` | Boots production Nuxt 3 reactive web dashboard with bidirectional rule editing & transaction drawer | Browser at `http://localhost:3000` |
+| **Debug** | `cli` | `docker compose run --rm cli bash` | Opens an interactive non-root shell inside the runtime container for filesystem and log inspection | Interactive shell (`node@container`) |
 
-- **Run schema introspection**:
-  ```bash
-  docker compose run --rm cli ./run.sh schema
-  ```
+---
 
-- **Run automated test suite**:
-  ```bash
-  docker compose run --rm cli ./mvnw -f backend/pom.xml test
-  # or convenience shortcut:
-  docker compose run --rm cli test
-  ```
+#### Mode A: Default Headless CLI Evaluation (`cli` service)
 
-- **Launch Web Dashboard on port 3000**:
-  ```bash
-  docker compose up --build
-  ```
-  *(or `docker compose up web`), then browse **[http://localhost:3000](http://localhost:3000)**).*
+**Command:**
+```bash
+docker compose run --rm cli
+```
+
+**What we are doing in this mode:**
+1. **Container Lifecycle & Ephemeral Isolation**: Spawns an isolated container instance (`compliance-evaluator-cli`) running as non-root user `node`. The `--rm` flag ensures the container terminates and removes itself immediately upon completion, leaving zero orphaned processes or leftover volumes.
+2. **Read-Only Volume Protection**: Mounts the host `./data` directory into `/app/data:ro` as **strictly read-only**. This guarantees that the evaluation process cannot accidentally overwrite, mutate, or delete canonical datasets (`data/transactions.json` and `data/rules.csv`). Mounts `./logs` to `/app/logs` for persistent file-based logging.
+3. **Headless Execution Routing**: [docker-entrypoint.sh](file:///home/battlestarcoder/Downloads/exam/docker-entrypoint.sh) intercepts the default `run` argument and routes execution to [run.sh](file:///home/battlestarcoder/Downloads/exam/run.sh). The script invokes the compiled backend JAR (`backend/target/transaction-compliance-evaluator-0.1.0.jar`) with `WebApplicationType.NONE`, eliminating web server startup overhead and avoiding port binding conflicts.
+4. **Data Ingestion & Invariant Enforcement**:
+   - Jackson streams `data/transactions.json` directly into `BigDecimal` instances to prevent IEEE-754 floating-point inaccuracies.
+   - Apache Commons CSV parses `data/rules.csv`, enforcing strict fail-closed validation on headers, operators, and domain bounds.
+5. **Core Evaluation & Precision Rounding**: The `RuleEngine` evaluates each transaction against all active rules independently. It applies ceiling rounding (`RoundingMode.CEILING`) for monetary amounts with $\ge 3$ decimals and extracts UTC hour components (`0..23`) before comparisons.
+6. **Deterministic TSV Output**: Emits the character-for-character specification TSV report (`Transaction\tBreached Rules`) straight to `stdout` with exit code `0`.
+
+---
+
+#### Mode A.1: Custom Dataset Evaluation (`cli` service with arguments)
+
+**Command:**
+```bash
+docker compose run --rm cli ./run.sh path/to/transactions.json path/to/rules.csv
+```
+
+**What we are doing in this mode:**
+1. **Dynamic Parameter Forwarding**: The container entrypoint forwards custom arguments directly to [run.sh](file:///home/battlestarcoder/Downloads/exam/run.sh), bypassing default file locations without requiring any image rebuild or code modifications.
+2. **Mounting Arbitrary Host Directories**: Evaluators can mount external folders to inspect custom institutional datasets:
+   ```bash
+   docker compose run --rm -v /path/to/custom_data:/custom_data:ro cli ./run.sh /custom_data/transactions.json /custom_data/rules.csv
+   ```
+3. **Consistent Validation & Reporting**: Applies the identical strict rule gatekeeping, missing-field null safety, ceiling rounding, and ascending breach ordering to any external dataset.
+
+---
+
+#### Mode A.2: Pre-Flight Input Validation (`cli` service)
+
+**Command:**
+```bash
+docker compose run --rm cli ./run.sh validate
+# Or validate custom datasets:
+docker compose run --rm cli ./run.sh validate path/to/transactions.json path/to/rules.csv
+```
+
+**What we are doing in this mode:**
+1. **Dry-Run Integrity Audit**: Executes a non-destructive schema and boundary audit without producing evaluation reports or modifying state.
+2. **Comprehensive Invariant Checks**:
+   - **Transactions**: Checks for mandatory `transaction_id`, non-null positive `amount`, valid ISO-8601 UTC timestamps, ISO-4217 3-letter currency codes, and ISO-3166-1 alpha-2 2-letter country codes.
+   - **Rules**: Checks for header completeness, operator-to-field compatibility (e.g. `in` restricted to text/hour, `gt`/`lt` restricted to number/hour), non-negative monetary thresholds, and bounded hour ranges (`0..23`).
+3. **CI/CD Quality Gate**: Returns exit code `0` if all datasets pass validation, or exits with code `1` and emits precise 1-based positional and row-attributed errors to `stderr` (`transactions[N]: ...` and `rules row N: ...`).
+
+---
+
+#### Mode A.3: Schema Vocabulary Introspection (`cli` service)
+
+**Command:**
+```bash
+docker compose run --rm cli ./run.sh schema
+```
+
+**What we are doing in this mode:**
+1. **Runtime Schema Discovery**: Queries the compliance engine for its internal schema dictionary directly from the container.
+2. **Machine-Readable Contract Output**: Prints a complete JSON schema defining all accepted fields, logical data types (`number`, `hour`, `string`, `iso-4217`, `iso-3166-1-alpha-2`), permitted operators per field, numeric and temporal bounds, and severity enums (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
+3. **Contract Integration**: Upstream ingestion pipelines, CI/CD linters, and external systems can consume this schema programmatically to enforce contract parity across distributed services.
+
+---
+
+#### Mode A.4: Containerized Automated Test Suite (`cli` service)
+
+**Command:**
+```bash
+docker compose run --rm cli test
+# Or explicit Maven invocation:
+docker compose run --rm cli ./mvnw -f backend/pom.xml test
+```
+
+**What we are doing in this mode:**
+1. **Self-Contained Build Environment**: Uses the container's built-in Eclipse Temurin JDK 17 (`javac`) and Apache Maven 3.9 distribution copied during the multi-stage build.
+2. **Zero-Network Offline Execution**: Copies the pre-cached Maven repository from the build stage into `/home/node/.m2` with non-root ownership (`node:node`), ensuring zero internet access or remote dependency downloads are needed at runtime.
+3. **Full Automated Suite Execution**: Compiles test classes and executes all 46 automated tests across 5 test suites (`TransactionLoaderTest`, `RuleLoaderTest`, `RuleEngineTest`, `OutputFormatterTest`, `PyroscopeProfilingTest`).
+4. **Boundary & Regression Verification**: Validates 75+ discrete test scenarios including currency/country ISO conformance, ceiling rounding on $\ge 3$ decimals, positional error reporting, missing-field safety, and continuous profiling hooks in ~2 seconds with exit code `0`.
+
+---
+
+#### Mode B: Interactive Web Dashboard (`web` service — Port 3000)
+
+**Command:**
+```bash
+docker compose up --build
+# Or run as background daemon:
+docker compose up -d web
+```
+*(Browse to **[http://localhost:3000](http://localhost:3000)**)*
+
+**What we are doing in this mode:**
+1. **Persistent Web Service**: Builds and starts the long-running `compliance-dashboard` container running the production Nuxt 3 server (`node frontend/.output/server/index.mjs`) on `0.0.0.0:3000`.
+2. **Port Binding**: Binds container port 3000 to host port 3000 (`3000:3000`), allowing immediate browser access without port forwarding or host software dependencies.
+3. **Bidirectional Rule Persistence (`./data:/app/data`)**: Unlike the CLI service which mounts `data` read-only, the Web Dashboard mounts `./data` read-write. Any new compliance rule added or edited via the UI is validated and persisted directly to the host's `data/rules.csv` in real time.
+4. **Shared Audit Logging (`./logs:/app/logs`)**: Persists application and evaluation logs to the host machine for real-time monitoring and inspection.
+5. **Interactive UI Capabilities**:
+   - **Compliance KPI Metrics**: Real-time summary cards displaying Total Transactions, Breached, Compliant, and Total Violations.
+   - **Transaction Drawer Inspector**: Click any transaction row or ID to open a slide-over drawer displaying all record fields, calculated UTC hour, breached rule details, and keyboard navigation (`◀ Prev` / `Next ▶`).
+   - **Live Rule Creator**: Form with live CSV row preview, field/operator compatibility checks, and UTC hour dropdown (0–23); validates rules before updating `rules.csv`.
+   - **Batch Transaction Ingestion**: Drag-and-drop JSON file upload or raw JSON pasting with instant pre-flight validation.
+   - **TSV Preview & Clipboard Copy**: One-click raw TSV report preview and copy for evaluator auditing.
+6. **Container Health Monitoring**: Includes an automated Docker healthcheck running every 15 seconds via native Node 20 `fetch('http://127.0.0.1:3000')` to confirm server readiness.
+
+---
+
+#### Debug Mode: Interactive Container Shell (`cli` service)
+
+**Command:**
+```bash
+docker compose run --rm cli bash
+```
+
+**What we are doing in this mode:**
+1. **Shell Interception**: [docker-entrypoint.sh](file:///home/battlestarcoder/Downloads/exam/docker-entrypoint.sh) recognizes `bash` (or `sh`) and drops into an interactive bash session inside the container instead of running evaluation.
+2. **Non-Root Sandboxed Environment**: Drops the user into `/app` as non-root user `node` (`uid=1000`) for security.
+3. **Troubleshooting & Inspection**: Evaluators can inspect `/app/data`, check generated `/app/logs/app.log`, test [run.sh](file:///home/battlestarcoder/Downloads/exam/run.sh) flags interactively, or verify environment variables (`JAVA_HOME`, `PATH`, `PORT`).
 
 ---
 
