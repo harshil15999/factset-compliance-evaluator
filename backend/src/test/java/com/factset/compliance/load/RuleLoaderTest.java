@@ -211,4 +211,22 @@ class RuleLoaderTest {
         List<String> pBadHeader = loader.validate(new StringReader(badHeader));
         assertTrue(pBadHeader.stream().anyMatch(p -> p.contains("missing required column 'severity'")));
     }
+
+    @Test
+    void loadSkipsInvalidAndDuplicateRules() throws Exception {
+        String data = csv(
+                "R001,valid_rule,amount,gt,1000,LOW",
+                "INVALID_ID,bad_id,amount,gt,1000,LOW",
+                "R001,duplicate_id,amount,gt,2000,HIGH",
+                "R002,negative_amount,amount,gt,-50,HIGH",
+                "R003,valid_second,country,eq,US,MEDIUM",
+                "R004,bad_operator,country,gt,US,HIGH",
+                "R005,valid_third,currency,neq,USD,LOW"
+        );
+        List<Rule> loaded = loader.load(new StringReader(data));
+        assertEquals(3, loaded.size());
+        assertEquals("R001", loaded.get(0).ruleId());
+        assertEquals("R003", loaded.get(1).ruleId());
+        assertEquals("R005", loaded.get(2).ruleId());
+    }
 }

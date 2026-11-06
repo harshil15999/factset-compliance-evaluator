@@ -26,14 +26,21 @@ import java.util.stream.Collectors;
 /**
  * CSV parser and validator for compliance rules loaded from {@code rules.csv}.
  *
- * <p>Enforces strict validation rules:
+ * <p>
+ * Enforces strict validation rules:
  * <ul>
- *   <li>The CSV header must include {@code rule_id}, {@code field}, {@code operator}, and {@code severity}.</li>
- *   <li>{@code rule_id} values must be unique and match the canonical {@code ^R\d+$} pattern.</li>
- *   <li>Fields must belong to the approved domain vocabulary in {@link RuleEngine#FIELDS}.</li>
- *   <li>Operators must be compatible with field types (e.g. {@code gt}/{@code lt} only on numeric fields).</li>
- *   <li>Numeric thresholds must parse cleanly as {@link BigDecimal} and cannot be negative.</li>
- *   <li>Hour thresholds must parse as integer values in the range {@code 0..23}.</li>
+ * <li>The CSV header must include {@code rule_id}, {@code field},
+ * {@code operator}, and {@code severity}.</li>
+ * <li>{@code rule_id} values must be unique and match the canonical
+ * {@code ^R\d+$} pattern.</li>
+ * <li>Fields must belong to the approved domain vocabulary in
+ * {@link RuleEngine#FIELDS}.</li>
+ * <li>Operators must be compatible with field types (e.g. {@code gt}/{@code lt}
+ * only on numeric fields).</li>
+ * <li>Numeric thresholds must parse cleanly as {@link BigDecimal} and cannot be
+ * negative.</li>
+ * <li>Hour thresholds must parse as integer values in the range
+ * {@code 0..23}.</li>
  * </ul>
  */
 @Component
@@ -42,29 +49,39 @@ public class RuleLoader {
     private static final Logger log = LoggerFactory.getLogger(RuleLoader.class);
 
     private static final Pattern RULE_ID = Pattern.compile("^R\\d+$");
-    private static final Pattern COUNTRY = Pattern.compile("^[A-Z]{2}$");  // ISO 3166 alpha-2
+    private static final Pattern COUNTRY = Pattern.compile("^[A-Z]{2}$"); // ISO 3166 alpha-2
     private static final Pattern CURRENCY = Pattern.compile("^[A-Z]{3}$"); // ISO 4217
     private static final Pattern IDENTIFIER = Pattern.compile("^[A-Z0-9_]+$");
 
     /**
-     * Parses rules from a character stream, skipping malformed records with warning diagnostics.
+     * Parses rules from a character stream, skipping malformed records with warning
+     * diagnostics.
      *
      * @param reader Source reader providing CSV formatted rule data.
      * @return List of successfully parsed {@link Rule} instances.
-     * @throws IOException If an I/O error occurs reading from the underlying stream.
+     * @throws IOException If an I/O error occurs reading from the underlying
+     *                     stream.
      */
     public List<Rule> load(Reader reader) throws IOException {
         List<Rule> rules = new ArrayList<>();
         int skipped = 0;
+        Set<String> seenIds = new HashSet<>();
         try (CSVParser parser = csvFormat().parse(reader)) {
             for (CSVRecord record : parser) {
                 try {
                     Rule rule = parse(record);
                     List<String> rowProblems = new ArrayList<>();
+                    if (!RULE_ID.matcher(rule.ruleId()).matches()) {
+                        rowProblems.add("rule_id '" + rule.ruleId() + "' is not in expected format (e.g. R001)");
+                    }
+                    if (!seenIds.add(rule.ruleId())) {
+                        rowProblems.add("duplicate rule_id '" + rule.ruleId() + "'");
+                    }
                     checkFieldOperatorValue(rule, record.getRecordNumber(), rowProblems);
                     if (!rowProblems.isEmpty()) {
                         skipped++;
-                        log.error("Skipping invalid rule on line {}: {}", record.getRecordNumber(), String.join("; ", rowProblems));
+                        log.error("Skipping invalid rule on line {}: {}", record.getRecordNumber(),
+                                String.join("; ", rowProblems));
                     } else {
                         rules.add(rule);
                     }
@@ -79,7 +96,8 @@ public class RuleLoader {
     }
 
     /**
-     * Validates an entire rules CSV payload without dropping rows, returning all semantic violations.
+     * Validates an entire rules CSV payload without dropping rows, returning all
+     * semantic violations.
      *
      * @param reader Source reader providing CSV formatted rule data to inspect.
      * @return List of error messages; empty if the entire CSV is strictly valid.
@@ -91,7 +109,8 @@ public class RuleLoader {
         try (CSVParser parser = csvFormat().parse(reader)) {
             Map<String, Integer> headerMap = parser.getHeaderMap();
             if (headerMap == null || headerMap.isEmpty()) {
-                problems.add("rules.csv is empty or missing required header: rule_id,rule_name,field,operator,value,severity");
+                problems.add(
+                        "rules.csv is empty or missing required header: rule_id,rule_name,field,operator,value,severity");
                 return problems;
             }
             List<String> requiredHeaders = List.of("rule_id", "field", "operator", "severity");
@@ -104,11 +123,12 @@ public class RuleLoader {
                 return problems;
             }
             for (CSVRecord record : parser) {
-                long row = record.getRecordNumber();  // data-row number, header excluded
+                long row = record.getRecordNumber(); // data-row number, header excluded
                 try {
                     Rule rule = parse(record);
                     if (!RULE_ID.matcher(rule.ruleId()).matches()) {
-                        problems.add("rules row " + row + ": rule_id '" + rule.ruleId() + "' is not in expected format (e.g. R001)");
+                        problems.add("rules row " + row + ": rule_id '" + rule.ruleId()
+                                + "' is not in expected format (e.g. R001)");
                     }
                     if (!seenIds.add(rule.ruleId())) {
                         problems.add("rules row " + row + ": duplicate rule_id '" + rule.ruleId() + "'");
@@ -145,8 +165,10 @@ public class RuleLoader {
     }
 
     /**
-     * Semantic checks on one rule: the field exists, the operator is valid for that field, the value is
-     * present, and the value fits the field's domain (number for amount, hour 0-23 for timestamp.hour,
+     * Semantic checks on one rule: the field exists, the operator is valid for that
+     * field, the value is
+     * present, and the value fits the field's domain (number for amount, hour 0-23
+     * for timestamp.hour,
      * non-empty items for an `in` list). Each failure is added to {@code problems}.
      */
     private static void checkFieldOperatorValue(Rule rule, long row, List<String> problems) {
@@ -157,11 +179,12 @@ public class RuleLoader {
 
         if (!RuleEngine.KNOWN_FIELDS.contains(field)) {
             problems.add(at + "unknown field '" + field + "' (known: " + RuleEngine.KNOWN_FIELDS + ")");
-            return;  // can't judge operator/value against an unknown field
+            return; // can't judge operator/value against an unknown field
         }
         Set<String> allowed = RuleEngine.allowedOperators(field);
         if (!allowed.contains(op)) {
-            problems.add(at + "operator '" + op + "' is not valid for field '" + field + "' (allowed: " + allowed.stream().sorted().toList() + ")");
+            problems.add(at + "operator '" + op + "' is not valid for field '" + field + "' (allowed: "
+                    + allowed.stream().sorted().toList() + ")");
             return;
         }
         if (value == null || value.isBlank()) {
@@ -199,7 +222,7 @@ public class RuleLoader {
                         // In-range but vacuous: gt MAX and lt MIN can never match.
                         if (op.equals("gt") && h == RuleEngine.HOUR_MAX) {
                             problems.add(at + "'gt " + h + "' on " + field + " can never match ("
-                                     + RuleEngine.HOUR_MAX + " is the max hour)");
+                                    + RuleEngine.HOUR_MAX + " is the max hour)");
                         } else if (op.equals("lt") && h == RuleEngine.HOUR_MIN) {
                             problems.add(at + "'lt " + h + "' on " + field + " can never match ("
                                     + RuleEngine.HOUR_MIN + " is the min hour)");
@@ -208,11 +231,15 @@ public class RuleLoader {
                 }
                 default -> {
                     if (field.equals("country") && !COUNTRY.matcher(item).matches()) {
-                        problems.add(at + "value '" + item + "' is not a 2-letter ISO country code for field 'country'");
+                        problems.add(
+                                at + "value '" + item + "' is not a 2-letter ISO country code for field 'country'");
                     } else if (field.equals("currency") && !CURRENCY.matcher(item).matches()) {
-                        problems.add(at + "value '" + item + "' is not a 3-letter ISO currency code for field 'currency'");
-                    } else if ((field.equals("account_type") || field.equals("transaction_type")) && !IDENTIFIER.matcher(item).matches()) {
-                        problems.add(at + "value '" + item + "' should be an uppercase identifier for field '" + field + "'");
+                        problems.add(
+                                at + "value '" + item + "' is not a 3-letter ISO currency code for field 'currency'");
+                    } else if ((field.equals("account_type") || field.equals("transaction_type"))
+                            && !IDENTIFIER.matcher(item).matches()) {
+                        problems.add(at + "value '" + item + "' should be an uppercase identifier for field '" + field
+                                + "'");
                     }
                 }
             }
