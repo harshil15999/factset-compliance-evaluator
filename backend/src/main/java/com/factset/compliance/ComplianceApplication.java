@@ -194,9 +194,16 @@ public class ComplianceApplication implements ApplicationRunner {
             if (!res.exists()) {
                 res = new FileSystemResource("data/" + path);
             }
+            if (!res.exists()) {
+                res = new FileSystemResource("../" + path);
+            }
+            if (!res.exists()) {
+                res = new FileSystemResource("../data/" + path);
+            }
             return res;
         }
         Resource res = new FileSystemResource("data/" + defaultFileName);
+        if (!res.exists()) res = new FileSystemResource("../data/" + defaultFileName);
         if (!res.exists()) res = new FileSystemResource(defaultFileName);
         if (!res.exists()) res = new FileSystemResource("backend/src/main/resources/" + defaultFileName);
         if (!res.exists()) res = new ClassPathResource(defaultFileName);
