@@ -243,6 +243,19 @@ docker compose run --rm cli ./run.sh validate path/to/transactions.json path/to/
    - **Rules**: Checks for header completeness, operator-to-field compatibility (e.g. `in` restricted to text/hour, `gt`/`lt` restricted to number/hour), non-negative monetary thresholds, and bounded hour ranges (`0..23`).
 3. **CI/CD Quality Gate**: Returns exit code `0` if all datasets pass validation, or exits with code `1` and emits precise 1-based positional and row-attributed errors to `stderr` (`transactions[N]: ...` and `rules row N: ...`).
 
+> [!NOTE]
+> **Why Use Pre-Flight Validation?**
+> - **Zero Side-Effects Dry Run**: Audits datasets without evaluating rules, generating reports, writing to databases, or triggering downstream alerts.
+> - **CI/CD Quality Gate**: Enforces automated pull request checks (`exit 0` clean / `exit 1` failed) preventing corrupted schemas or bad rules from reaching production.
+> - **Pinpoint 1-Based Diagnostics**: Emits exact row and positional error pointers (`transactions[N]: ...` and `rules row N: ...`) so developers and compliance officers can resolve issues immediately.
+> - **Resource Protection**: Validates large transaction batches at the ingestion boundary before consuming heavy CPU and memory cluster resources.
+
+**Underlying Architecture (How It Works Under the Hood):**
+- **Jackson Streaming Tokenization (`TransactionLoader.validate`)**: Streams `transactions.json` element-by-element using Jackson's tree model without loading the entire transaction array into memory. For each JSON object, it enforces mandatory identity checks (`transaction_id` non-null and non-blank), tracks deduplication via a HashSet (`seenIds`), verifies timestamp ranges (`2000-01-01` to `now + 1 day`), and confirms positive monetary values (`amount > 0`). If low-level parsing fails, it preserves identity precedence to report missing IDs accurately.
+- **Apache Commons CSV Stream Parsing (`RuleLoader.validate`)**: Parses `rules.csv` using header mappings (`getHeaderMap()`), immediately catching empty files or missing required columns (`rule_id`, `field`, `operator`, `severity`). For each record, it validates regex conformance (`^R\d+$`), ensures `rule_id` uniqueness, checks operator compatibility against the engine vocabulary (`checkFieldOperatorValue`), and validates numeric/hour domain bounds.
+- **Aggregated Error Collector (`List<String> problems`)**: Rather than halting execution at the very first defect, both loaders accumulate all detected issues into an aggregated diagnostic list. This surfaces all schema and invariant failures in a single pass.
+- **Exit Code Convention**: `ComplianceApplication.exitWithValidationResult` evaluates the problem list: if empty, prints `OK: inputs are valid` and exits with code `0`; if problems exist, logs every failure to `stderr` with total defect counts and terminates with code `1`.
+
 ---
 
 #### Mode A.3: Schema Vocabulary Introspection (`cli` service)
