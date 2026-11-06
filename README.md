@@ -52,6 +52,10 @@ Evaluates customer financial transactions against regulatory compliance rules an
   - [Shared Validation Library (`compliance-core`) to Prevent Semantic Drift](#4-what-would-be-done-next)
   - [Target Inter-App Communication (UDS, gRPC, Event-Driven Queues)](#4-what-would-be-done-next)
 - [5. Tools Used](#5-tools-used)
+- [6. Follow-up Session Guide: Architecture Walkthrough & Live Extension Playbook](#6-follow-up-session-guide-architecture-walkthrough--live-extension-playbook)
+  - [A. 5-Minute Solution Walkthrough (Evaluator Talking Points)](#a-5-minute-solution-walkthrough-evaluator-talking-points)
+  - [B. Live Extension Playbook (Ready-to-Code Blueprints)](#b-live-extension-playbook-ready-to-code-blueprints)
+  - [C. Anticipated Interview Extension Questions & Strategic Answers](#c-anticipated-interview-extension-questions--strategic-answers)
 
 ---
 
@@ -554,3 +558,292 @@ This submission follows the principle: **Be strict on rules (fail-fast), be resi
 - **JUnit 5**: Automated test suite (46 tests covering 75+ unit, edge-case, and profiling benchmark scenarios).
 - **Grafana Pyroscope & Java Profiling Agent (`io.pyroscope:agent`)**: Low-overhead continuous CPU profiling and interactive flame graph visualization.
 - **Google Antigravity**: AI assistant for iterative development, architecture design, edge-case analysis, and verification.
+
+---
+
+## 6. Follow-up Session Guide: Architecture Walkthrough & Live Extension Playbook
+
+> [!IMPORTANT]
+> Prepared specifically for the follow-up review session: *"In a follow-up session we will ask you to walk through your solution and extend it."* (`candidate-brief.md#L17`).
+
+### A. 5-Minute Solution Walkthrough (Evaluator Talking Points)
+
+When walking through the solution during the follow-up session, highlight these 5 core design pillars:
+
+1. **Separation of Concerns & Pure Functional Core**:
+   - The architecture strictly decouples file ingestion (`TransactionLoader`, `RuleLoader`), pure rule evaluation (`RuleEngine`, `Operator`), and report formatting (`OutputFormatter`).
+   - `RuleEngine` is completely stateless and has zero web, network, or database dependencies. Given identical inputs, it always produces identical outputs, making it deterministic and unit-testable in milliseconds.
+
+2. **Dual Reliability Philosophy (Fail-Closed Rules vs. Fault-Tolerant Ingestion)**:
+   - **Rules are held to strict zero-tolerance**: Any malformed syntax, unknown field, invalid operator, or out-of-range value in `rules.csv` aborts execution immediately with code `1`. Corrupted compliance rules must never silently evaluate.
+   - **Customer data ingestion is resilient**: Corrupted or malformed transactions are logged to `stderr` with 1-based positional diagnostics (`transactions[3]: amount must be positive`) and skipped, allowing all valid customer records to be processed without pipeline crashes.
+
+3. **Financial & Temporal Precision**:
+   - Monetary amounts use `BigDecimal` rather than `double`/`float`, eliminating binary floating-point inaccuracies. If scale $\ge 3$, explicit ceiling rounding (`RoundingMode.CEILING`) is applied up to 2 decimal places to avoid false negatives.
+   - Timestamps are normalized to UTC `Instant`, and `timestamp.hour` extracts integer hours (`0..23`). Leading-zero canonicalization ensures rule thresholds like `"06"` evaluate identically to `"6"`.
+
+4. **Missing Optional Field Semantics (Null Safety)**:
+   - Absent optional fields on a transaction (e.g. omitted `currency` or `country`) safely evaluate to `false` (no breach) and log a diagnostic warning, guaranteeing zero false-positive violations.
+
+5. **Headless Spring Boot (`WebApplicationType.NONE`) & Docker Port Separation**:
+   - The backend runs headless without embedded Tomcat, guaranteeing zero port conflicts and instantaneous CLI execution.
+   - The interactive web dashboard runs in Nuxt 3 on port 3000, calling the backend via process isolation. Docker Compose orchestrates both seamlessly.
+
+---
+
+### B. Live Extension Playbook (Ready-to-Code Blueprints)
+
+Here is how the codebase is structured to be extended during the live follow-up session:
+
+#### Extension 1: Adding a New Field (e.g., `merchant_category` or `is_international`)
+The rule vocabulary is centralized in `RuleEngine.java`. Adding a new field requires only 3 targeted edits:
+1. **Model** (`Transaction.java`): Add `String merchantCategory` to the record.
+2. **Vocabulary** (`RuleEngine.java`):
+   - Add `"merchant_category"` to `FIELDS`.
+   - In `fieldType(field)`: Map `"merchant_category" -> "string"`.
+3. **Extraction** (`RuleEngine.java`):
+   - In `fieldValue(...)`: Add `case "merchant_category" -> t.merchantCategory() != null ? t.merchantCategory().trim() : null;`.
+*(Zero changes needed in the evaluation loop, CSV loader, or output formatter!)*
+
+#### Extension 2: Adding a New Operator (e.g., `regex`, `contains`, `between`)
+Operators encapsulate their own evaluation logic inside `Operator.java`:
+1. **Enum Definition** (`Operator.java`):
+   ```java
+   REGEX("regex"),
+   CONTAINS("contains"),
+   BETWEEN("between");
+   ```
+2. **Evaluation Logic**:
+   - In `test(String fieldValue, String ruleValue)`:
+     ```java
+     case REGEX -> fieldValue.matches(ruleValue);
+     case CONTAINS -> fieldValue.contains(ruleValue);
+     case BETWEEN -> {
+         String[] parts = ruleValue.split("..");
+         yield fieldValue.compareTo(parts[0]) >= 0 && fieldValue.compareTo(parts[1]) <= 0;
+     }
+     ```
+3. **Authorization** (`RuleEngine.java`): Add `"regex"` or `"contains"` to `allowedOperators(field)` for string/text fields.
+
+#### Extension 3: Compound Rules (`AND` / `OR` / `NOT`)
+Currently, each rule row represents a single atomic condition. To support boolean logic:
+1. **Specification / Composite Pattern**:
+   ```java
+   public interface RulePredicate {
+       boolean test(Transaction t, RuleEngine engine);
+   }
+   public record AtomicPredicate(Rule rule) implements RulePredicate { ... }
+   public record AndPredicate(List<RulePredicate> operands) implements RulePredicate { ... }
+   public record OrPredicate(List<RulePredicate> operands) implements RulePredicate { ... }
+   ```
+2. **Rule Syntax**: Extend `rules.csv` or a JSON rule definition to allow nested expressions:
+   `amount gt 10000 AND (country in IR,KP OR transaction_type eq WIRE_TRANSFER)`.
+
+#### Extension 4: Velocity & Stateful Cross-Transaction Aggregations
+To detect velocity patterns (e.g., *"Customer performs > 3 transactions within 10 minutes"* or *"Cumulative daily amount > $50,000"*):
+1. **Stateful Window Tracker**:
+   - Maintain an in-memory sliding window deque grouped by `customer_id`:
+     ```java
+     Map<String, Deque<Transaction>> customerWindows = new ConcurrentHashMap<>();
+     ```
+   - For distributed deployments, use **Redis Sorted Sets (ZSET)** where `score = timestamp_millis`:
+     - Add new txn: `ZADD txn:customer_id <timestamp> <txn_id>`
+     - Prune expired entries: `ZREMRANGEBYSCORE txn:customer_id 0 <now - 10_minutes>`
+     - Count frequency: `ZCARD txn:customer_id`
+2. **Evaluation Hook**: Inject the window context into the rule evaluation loop prior to rule matching.
+
+#### Extension 5: Event-Driven Real-Time Streaming (Kafka / Flink)
+To transition from batch files to continuous real-time compliance evaluation:
+1. **Stream Listener**: Replace `ApplicationRunner` with a `@KafkaListener(topics = "transactions.raw")`.
+2. **Pipeline**:
+   - Ingest JSON message $\to$ Validate $\to$ Evaluate against cached in-memory `rules` $\to$ Emit breached records to `"compliance.breaches"` topic.
+3. **Dynamic Rule Reloading**: Listen on a `"rules.updates"` broadcast topic to refresh the in-memory rule set with zero application restarts.
+
+---
+
+### C. Anticipated Interview Extension Questions & Strategic Answers
+
+During the technical interview follow-up, evaluators will probe how the current architecture holds up under real-world financial compliance demands. Below are the top anticipated questions, organized by architectural tier, along with battle-tested answers and implementation blueprints.
+
+```mermaid
+flowchart TD
+    subgraph Tier1 ["1. Rule Engine & Expression Power"]
+        Q1["Q1: New Fields (MCC, IP)"]
+        Q2["Q2: New Operators (regex, between)"]
+        Q3["Q3: Boolean AST (AND/OR/NOT)"]
+        Q4["Q4: Action Outcomes (BLOCK vs FLAG)"]
+    end
+
+    subgraph Tier2 ["2. Stateful Compliance & AML"]
+        Q5["Q5: Velocity Tracking (Sliding Windows)"]
+        Q6["Q6: Smurfing & Structuring Detection"]
+        Q7["Q7: Dynamic FX & Currency Normalization"]
+    end
+
+    subgraph Tier3 ["3. Scale, Streaming & Fault Tolerance"]
+        Q8["Q8: 100k TPS Real-Time Scaling"]
+        Q9["Q9: Zero-Downtime Rule Reloading"]
+        Q10["Q10: Backpressure & Dead-Letter Queues"]
+        Q11["Q11: Preventing Inter-App Rule Drift"]
+    end
+
+    subgraph Tier4 ["4. Regulatory Audit & Governance"]
+        Q12["Q12: Bi-Temporal Auditability"]
+        Q13["Q13: Shadow / Canary Rule Deployments"]
+    end
+```
+
+#### Category 1: Rule Engine & Expression Power
+
+##### Q1: "How would you add a new transaction field like `merchant_category_code` (MCC) or `device_ip`?"
+* **Why Interviewers Ask**: Tests understanding of the Single Source of Truth architecture and whether field addition requires invasive changes across loaders, models, and UI.
+* **Talking Points**:
+  - Because `RuleEngine.FIELDS`, `fieldType()`, and `allowedOperators()` define the domain vocabulary, adding a field is completely localized.
+  - Adding `merchant_category_code` takes 3 targeted steps:
+    1. Add `String merchantCategoryCode` to the immutable `Transaction` record with `@JsonProperty("merchant_category_code")`.
+    2. Register `"merchant_category_code"` in `RuleEngine.FIELDS` and configure its type in `fieldType()` as `"string"`.
+    3. Add a mapping in `RuleEngine.fieldValue()`: `case "merchant_category_code" -> t.merchantCategoryCode() != null ? t.merchantCategoryCode().trim() : null;`.
+  - The CLI validator, web schema endpoint (`/api/schema`), and frontend dropdowns pick it up dynamically without modifying the evaluation loop.
+
+##### Q2: "How would you implement a `regex` or `between` operator?"
+* **Why Interviewers Ask**: Probes enum extensibility and how operator semantics are decoupled from data extraction.
+* **Talking Points**:
+  - The `Operator` enum encapsulates its own execution logic (`test` and `testNumeric`).
+  - To add `regex`:
+    1. Add `REGEX("regex")` to `Operator`.
+    2. In `Operator.test(String val, String pattern)`: Compile or lookup a cached `Pattern` and return `pattern.matcher(val).matches()`.
+    3. In `RuleEngine.allowedOperators(field)`: Add `"regex"` to string-typed fields (`country`, `currency`, `transaction_type`).
+  - To add `between`:
+    1. Expect threshold syntax like `"100..500"` in CSV.
+    2. In `Operator.testNumeric()`: Split the bounds into two `BigDecimal` values and verify `lower <= amount && amount <= upper`.
+
+##### Q3: "How would you support compound boolean rules (e.g. `(amount > 10000 AND country in IR,KP) OR customer_id eq CUST_SANCTIONED`)?"
+* **Why Interviewers Ask**: Evaluates design pattern maturity (Composite / Specification Pattern vs ad-hoc boolean flags).
+* **Talking Points**:
+  - Move from a flat `List<Rule>` to a recursive **Composite Specification Tree**:
+    ```java
+    public sealed interface RuleNode permits ConditionNode, AndNode, OrNode, NotNode {
+        boolean evaluate(Transaction t, RuleEngine engine);
+    }
+    public record ConditionNode(Rule rule) implements RuleNode {
+        public boolean evaluate(Transaction t, RuleEngine engine) {
+            return engine.isBreached(t, rule);
+        }
+    }
+    public record AndNode(List<RuleNode> children) implements RuleNode {
+        public boolean evaluate(Transaction t, RuleEngine engine) {
+            return children.stream().allMatch(c -> c.evaluate(t, engine));
+        }
+    }
+    ```
+  - For CSV backwards compatibility, compound rules can either be represented in JSON/YAML or parsed from CSV using standard infix syntax with a lightweight Pratt parser / Shunting-yard algorithm.
+
+##### Q4: "How would you support custom rule actions beyond severity (e.g. `BLOCK`, `FLAG_MANUAL_REVIEW`, `ALLOW`)?"
+* **Why Interviewers Ask**: Verifies if the candidate understands operational compliance workflows where high-severity breaches trigger automated payment halting vs compliance queues.
+* **Talking Points**:
+  - Extend the rule definition schema with an `action` enum column: `BLOCK`, `REVIEW`, `ALLOW_AND_LOG`.
+  - In `OutputFormatter` and the Web UI, group breaches by action. If any rule with action `BLOCK` is breached, the overall transaction decision halts execution and returns a non-zero operational status code (`STATUS_REJECTED`), while non-blocking rules route to a visual audit queue.
+
+---
+
+#### Category 2: Stateful Compliance & Anti-Money Laundering (AML)
+
+##### Q5: "How would you implement velocity checks (e.g. 'Alert if a customer makes > 3 transactions within 5 minutes')?"
+* **Why Interviewers Ask**: Explores the transition from stateless per-transaction evaluation to stateful cross-transaction windowing.
+* **Talking Points**:
+  - In a single-instance setup, maintain an in-memory sliding window queue partitioned by `customer_id`:
+    `Map<String, Deque<Transaction>> customerWindows = new ConcurrentHashMap<>();`.
+  - When evaluating transaction $T$, prune entries older than $T.timestamp - 5\text{ minutes}$. If remaining entries $> 3$, trigger the velocity rule.
+  - In a distributed production cluster, use **Redis Sorted Sets (ZSET)**:
+    - Partition key: `txn:velocity:{customer_id}`
+    - Add transaction: `ZADD key <timestamp_millis> <transaction_id>`
+    - Evict expired: `ZREMRANGEBYSCORE key 0 <timestamp_millis - 300_000>`
+    - Count: `ZCARD key`. If count $> 3$, record a breach. Set a TTL of 1 hour on the key for automatic memory reclamation.
+
+##### Q6: "How would you detect structuring or 'smurfing' (e.g. multiple transactions of $9,500 designed to evade the $10,000 threshold)?"
+* **Why Interviewers Ask**: Directly tests financial crime and anti-money laundering (AML) domain knowledge.
+* **Talking Points**:
+  - Structuring rules evaluate two criteria simultaneously:
+    1. Near-threshold amount: `amount >= 9000 AND amount < 10000` (threshold proximity).
+    2. Cumulative rolling sum: Sum of customer amounts across a 24-hour sliding window exceeds statutory reporting limits ($\ge \$10,000$).
+  - Implementation: Using a rolling state window (Redis ZSET or Apache Flink windowed state), store both `amount` and `timestamp`. Aggregate the sum across the window. If cumulative total breaches the ceiling, flag as `SUSPICIOUS_ACTIVITY_STRUCTURING` with `CRITICAL` severity.
+
+##### Q7: "How would you handle multi-currency transactions where rules specify thresholds in USD but transactions arrive in EUR, JPY, or GBP?"
+* **Why Interviewers Ask**: Tests numeric precision, currency conversion safety, and separation of concerns.
+* **Talking Points**:
+  - Never convert amounts directly inside `RuleEngine` (violates Single Responsibility Principle).
+  - Introduce an `ExchangeRateService`:
+    ```java
+    public interface ExchangeRateService {
+        BigDecimal convert(BigDecimal amount, String fromCurrency, String toCurrency, Instant timestamp);
+    }
+    ```
+  - When a transaction arrives in `EUR` and a rule evaluates `amount gt 10000` (base USD), calculate a derived normalized property: `amount.usd = exchangeRateService.convert(amount, currency, "USD", timestamp)`.
+  - Crucial regulatory requirement: FX rates must be historical as of the exact transaction timestamp, not the current wall-clock rate, guaranteeing repeatable audit outcomes.
+
+---
+
+#### Category 3: High-Throughput & Distributed Streaming
+
+##### Q8: "How would this architecture scale to evaluate 100,000 transactions per second in real time?"
+* **Why Interviewers Ask**: Tests distributed systems scaling principles and bottlenecks in the current batch implementation.
+* **Talking Points**:
+  - The current evaluation kernel (`RuleEngine.breaches()`) is already a **pure function**—it holds no locks, performs no I/O, and is completely thread-safe.
+  - Architecture Blueprint for 100k TPS:
+    1. **Ingestion**: Ingest via Apache Kafka partitioned by `customer_id` (ensuring ordering per customer for velocity checks).
+    2. **Worker Fleet**: Deploy stateless matching pods running in Kubernetes with Horizontal Pod Autoscaler (HPA) targeting CPU utilization.
+    3. **In-Memory Cache**: Each worker holds pre-parsed, immutable `Rule` objects in RAM with pre-compiled `BigDecimal` thresholds and `Set<String>` sets (as identified by our Pyroscope Flame Graph profiling).
+    4. **Zero Allocation**: Avoid redundant object instantiation inside the evaluation loop by reusing thread-local buffers.
+
+##### Q9: "How would you support zero-downtime dynamic rule updates while processing transactions?"
+* **Why Interviewers Ask**: Probes concurrency control and atomic state transitions in high-throughput engines.
+* **Talking Points**:
+  - Use **Atomic Reference Swapping**:
+    ```java
+    private final AtomicReference<List<Rule>> activeRules = new AtomicReference<>(initialRules);
+    
+    public void updateRules(List<Rule> newRules) {
+        validateOrAbort(newRules); // Fail-closed validation before applying
+        activeRules.set(Collections.unmodifiableList(newRules)); // Atomic pointer swap
+    }
+    ```
+  - Running threads finish evaluating their in-flight transaction with the old rule set, while the very next transaction instantly sees the new rule set.
+  - Zero synchronization locks, zero blocked threads, zero downtime. In distributed deployments, broadcast the update via a Kafka compacted topic (`compliance.rules.config`) or etcd/Consul watch.
+
+##### Q10: "How would you handle backpressure and corrupted payload dead-lettering?"
+* **Why Interviewers Ask**: Tests production fault tolerance and recovery mechanisms.
+* **Talking Points**:
+  - **Dead-Letter Queue (DLQ)**: When `TransactionLoader` encounters unparseable JSON or negative amounts, rather than dropping them, route the raw payload and validation error description to a `compliance.dlq` topic or table for human investigation.
+  - **Backpressure**: In a reactive stream (Spring WebFlux / Project Reactor / Kafka Consumer), use reactive backpressure (`Flux.limitRate()`) so worker pods slow down message pulling when downstream logging or persistence saturates, preventing `OutOfMemoryError`.
+
+##### Q11: "How do you guarantee that the web UI and backend evaluation workers never suffer from semantic rule drift?"
+* **Why Interviewers Ask**: Checks distributed system governance and prevention of subtle validation bugs.
+* **Talking Points**:
+  - Extract the core vocabulary, operator rules, and validation logic into a shared versioned Maven/npm module (`compliance-core`).
+  - Both the UI server (which validates rules upon authoring) and the backend evaluation workers (which execute matching) import the exact same validation bytecode.
+  - Add Consumer-Driven Contract tests (Pact) in CI/CD that assert both the CLI and web API produce byte-for-byte identical validation errors and evaluation reports on benchmark datasets.
+
+---
+
+#### Category 4: Regulatory Auditing & Governance
+
+##### Q12: "How would you implement bi-temporal auditability (proving which rule version evaluated a transaction 3 months ago)?"
+* **Why Interviewers Ask**: Evaluates enterprise compliance audit rigor (crucial for FINRA, SEC, and FCA audits).
+* **Talking Points**:
+  - In financial compliance, you must be able to answer two distinct temporal questions:
+    1. *Valid Time*: What rules were legally in effect on the date of the transaction (e.g. Jan 15, 2024)?
+    2. *Transaction Time*: What rules were actually in our database when the audit run executed?
+  - Implementation:
+    - Every rule in `rules.csv` or DB receives `version_id`, `effective_from`, and `effective_to` timestamps.
+    - Every output record stamps the exact `rule_id` AND `rule_version_id` alongside the transaction ID.
+    - This allows retroactive compliance re-runs that match historical regulations with mathematical certainty.
+
+##### Q13: "How would you implement Canary / Shadow Rule Deployments (A/B testing new rules on live production traffic)?"
+* **Why Interviewers Ask**: Tests release engineering practices for mission-critical regulatory systems.
+* **Talking Points**:
+  - You cannot simply deploy a new rule into production without knowing its false-positive rate.
+  - Introduce a `RuleMode`: `ACTIVE` vs `SHADOW`.
+  - When a transaction is evaluated:
+    - `ACTIVE` rules generate official breaches, trigger compliance alerts, and appear in regulatory reports.
+    - `SHADOW` rules run in parallel in the background, logging diagnostic breach metrics to Grafana/Prometheus without alerting compliance officers.
+  - After evaluating false-positive rates over a 7-day shadow window, promote the rule from `SHADOW` to `ACTIVE` with zero code changes.

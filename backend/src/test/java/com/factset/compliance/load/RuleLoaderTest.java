@@ -48,6 +48,8 @@ class RuleLoaderTest {
         assertTrue(problems.get(0).contains("duplicate rule_id 'R001'"), problems.toString());
     }
 
+
+
     @Test
     void invalidRuleIdFormatFlagged() throws Exception {
         String data = csv("RULE1,bad_id,amount,gt,1000,LOW");
@@ -228,5 +230,19 @@ class RuleLoaderTest {
         assertEquals("R001", loaded.get(0).ruleId());
         assertEquals("R003", loaded.get(1).ruleId());
         assertEquals("R005", loaded.get(2).ruleId());
+    }
+
+    @Test
+    void loadPrefersValidRuleOverPriorInvalidRuleWithSameId() throws Exception {
+        String data = csv(
+                "R001,invalid_first,amount,gt,-50,HIGH",
+                "R001,valid_second,amount,gt,1000,LOW",
+                "R001,valid_third_duplicate,amount,gt,2000,HIGH"
+        );
+        List<Rule> loaded = loader.load(new StringReader(data));
+        assertEquals(1, loaded.size());
+        assertEquals("R001", loaded.get(0).ruleId());
+        assertEquals("valid_second", loaded.get(0).ruleName());
+        assertEquals("1000", loaded.get(0).value());
     }
 }

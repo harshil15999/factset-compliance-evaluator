@@ -19,6 +19,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
@@ -201,6 +202,11 @@ public class ComplianceApplication implements ApplicationRunner {
             System.err.println("Error: " + type + " file not found: " + res.getDescription());
             System.exit(2);
         }
+        if (!res.isReadable()) {
+            log.error("Error: {} file is not readable (check file permissions): {}", type, res.getDescription());
+            System.err.println("Error: " + type + " file is not readable (check file permissions): " + res.getDescription());
+            System.exit(2);
+        }
         return res;
     }
 
@@ -323,9 +329,14 @@ public class ComplianceApplication implements ApplicationRunner {
      * @return List of transaction syntax and validation errors.
      * @throws Exception If an I/O error occurs reading the resource.
      */
-    private List<String> validateTransactions(Resource txRes) throws Exception {
+    private List<String> validateTransactions(Resource txRes) {
         try (InputStream in = txRes.getInputStream()) {
             return transactionLoader.validate(in);
+        } catch (IOException e) {
+            log.error("Error reading transactions file ({}): {}", txRes.getDescription(), e.getMessage());
+            System.err.println("Error reading transactions file: " + e.getMessage());
+            System.exit(2);
+            return List.of();
         }
     }
 
@@ -337,9 +348,14 @@ public class ComplianceApplication implements ApplicationRunner {
      * @return List of CSV syntax and semantic rule validation errors.
      * @throws Exception If an I/O error occurs reading the resource.
      */
-    private List<String> validateRules(Resource rulesRes) throws Exception {
+    private List<String> validateRules(Resource rulesRes) {
         try (Reader reader = new InputStreamReader(rulesRes.getInputStream(), StandardCharsets.UTF_8)) {
             return ruleLoader.validate(reader);
+        } catch (IOException e) {
+            log.error("Error reading rules file ({}): {}", rulesRes.getDescription(), e.getMessage());
+            System.err.println("Error reading rules file: " + e.getMessage());
+            System.exit(2);
+            return List.of();
         }
     }
 
@@ -350,9 +366,14 @@ public class ComplianceApplication implements ApplicationRunner {
      * @return Loaded list of valid {@link Transaction} instances.
      * @throws Exception If an I/O error occurs reading the stream.
      */
-    private List<Transaction> loadTransactions(Resource txRes) throws Exception {
+    private List<Transaction> loadTransactions(Resource txRes) {
         try (InputStream in = txRes.getInputStream()) {
             return transactionLoader.load(in);
+        } catch (IOException e) {
+            log.error("Error reading transactions file ({}): {}", txRes.getDescription(), e.getMessage());
+            System.err.println("Error reading transactions file: " + e.getMessage());
+            System.exit(2);
+            return List.of();
         }
     }
 
@@ -363,9 +384,14 @@ public class ComplianceApplication implements ApplicationRunner {
      * @return Loaded list of valid {@link Rule} instances.
      * @throws Exception If an I/O error occurs reading the reader.
      */
-    private List<Rule> loadRules(Resource rulesRes) throws Exception {
+    private List<Rule> loadRules(Resource rulesRes) {
         try (Reader reader = new InputStreamReader(rulesRes.getInputStream(), StandardCharsets.UTF_8)) {
             return ruleLoader.load(reader);
+        } catch (IOException e) {
+            log.error("Error reading rules file ({}): {}", rulesRes.getDescription(), e.getMessage());
+            System.err.println("Error reading rules file: " + e.getMessage());
+            System.exit(2);
+            return List.of();
         }
     }
 

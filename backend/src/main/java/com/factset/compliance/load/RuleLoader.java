@@ -67,22 +67,22 @@ public class RuleLoader {
         int skipped = 0;
         Set<String> seenIds = new HashSet<>();
         try (CSVParser parser = csvFormat().parse(reader)) {
+            Map<String, Integer> headerMap = parser.getHeaderMap();
+            if (headerMap == null || headerMap.isEmpty()) {
+                log.error("rules.csv is empty or missing required header: rule_id,rule_name,field,operator,value,severity");
+                return rules;
+            }
             for (CSVRecord record : parser) {
                 try {
                     Rule rule = parse(record);
                     List<String> rowProblems = new ArrayList<>();
-                    if (!RULE_ID.matcher(rule.ruleId()).matches()) {
-                        rowProblems.add("rule_id '" + rule.ruleId() + "' is not in expected format (e.g. R001)");
-                    }
-                    if (!seenIds.add(rule.ruleId())) {
-                        rowProblems.add("duplicate rule_id '" + rule.ruleId() + "'");
-                    }
-                    checkFieldOperatorValue(rule, record.getRecordNumber(), rowProblems);
+                    validateRuleRecord(rule, record.getRecordNumber(), seenIds, rowProblems);
                     if (!rowProblems.isEmpty()) {
                         skipped++;
                         log.error("Skipping invalid rule on line {}: {}", record.getRecordNumber(),
                                 String.join("; ", rowProblems));
                     } else {
+                        seenIds.add(rule.ruleId());
                         rules.add(rule);
                     }
                 } catch (IllegalArgumentException e) {
@@ -126,20 +126,29 @@ public class RuleLoader {
                 long row = record.getRecordNumber(); // data-row number, header excluded
                 try {
                     Rule rule = parse(record);
-                    if (!RULE_ID.matcher(rule.ruleId()).matches()) {
-                        problems.add("rules row " + row + ": rule_id '" + rule.ruleId()
-                                + "' is not in expected format (e.g. R001)");
-                    }
-                    if (!seenIds.add(rule.ruleId())) {
-                        problems.add("rules row " + row + ": duplicate rule_id '" + rule.ruleId() + "'");
-                    }
-                    checkFieldOperatorValue(rule, row, problems);
+                    validateRuleRecord(rule, row, seenIds, problems);
+                    seenIds.add(rule.ruleId());
                 } catch (IllegalArgumentException e) {
                     problems.add("rules row " + row + ": " + e.getMessage());
                 }
             }
         }
         return problems;
+    }
+
+    /**
+     * Common validation function: validates one rule against ID format, uniqueness against
+     * registered rule IDs, domain vocabulary, operators, and domain thresholds.
+     */
+    private static void validateRuleRecord(Rule rule, long row, Set<String> registeredIds, List<String> problems) {
+        String at = "rules row " + row + ": ";
+        if (!RULE_ID.matcher(rule.ruleId()).matches()) {
+            problems.add(at + "rule_id '" + rule.ruleId() + "' is not in expected format (e.g. R001)");
+        }
+        if (registeredIds.contains(rule.ruleId())) {
+            problems.add(at + "duplicate rule_id '" + rule.ruleId() + "'");
+        }
+        checkFieldOperatorValue(rule, row, problems);
     }
 
     private static CSVFormat csvFormat() {
