@@ -67,9 +67,9 @@ public class RuleLoader {
         int skipped = 0;
         Set<String> seenIds = new HashSet<>();
         try (CSVParser parser = csvFormat().parse(reader)) {
-            Map<String, Integer> headerMap = parser.getHeaderMap();
-            if (headerMap == null || headerMap.isEmpty()) {
-                log.error("rules.csv is empty or missing required header: rule_id,rule_name,field,operator,value,severity");
+            List<String> headerProblems = validateHeader(parser.getHeaderMap());
+            if (!headerProblems.isEmpty()) {
+                headerProblems.forEach(log::error);
                 return rules;
             }
             for (CSVRecord record : parser) {
@@ -107,20 +107,9 @@ public class RuleLoader {
         List<String> problems = new ArrayList<>();
         Set<String> seenIds = new HashSet<>();
         try (CSVParser parser = csvFormat().parse(reader)) {
-            Map<String, Integer> headerMap = parser.getHeaderMap();
-            if (headerMap == null || headerMap.isEmpty()) {
-                problems.add(
-                        "rules.csv is empty or missing required header: rule_id,rule_name,field,operator,value,severity");
-                return problems;
-            }
-            List<String> requiredHeaders = List.of("rule_id", "field", "operator", "severity");
-            for (String h : requiredHeaders) {
-                if (!headerMap.containsKey(h)) {
-                    problems.add("rules.csv header is missing required column '" + h + "'");
-                }
-            }
-            if (!problems.isEmpty()) {
-                return problems;
+            List<String> headerProblems = validateHeader(parser.getHeaderMap());
+            if (!headerProblems.isEmpty()) {
+                return headerProblems;
             }
             for (CSVRecord record : parser) {
                 long row = record.getRecordNumber(); // data-row number, header excluded
@@ -131,6 +120,25 @@ public class RuleLoader {
                 } catch (IllegalArgumentException e) {
                     problems.add("rules row " + row + ": " + e.getMessage());
                 }
+            }
+        }
+        return problems;
+    }
+
+    /**
+     * Validates that the CSV header map is non-empty and contains all required columns.
+     */
+    private static List<String> validateHeader(Map<String, Integer> headerMap) {
+        List<String> problems = new ArrayList<>();
+        if (headerMap == null || headerMap.isEmpty()) {
+            problems.add(
+                    "rules.csv is empty or missing required header: rule_id,rule_name,field,operator,value,severity");
+            return problems;
+        }
+        List<String> requiredHeaders = List.of("rule_id", "field", "operator", "severity");
+        for (String h : requiredHeaders) {
+            if (!headerMap.containsKey(h)) {
+                problems.add("rules.csv header is missing required column '" + h + "'");
             }
         }
         return problems;

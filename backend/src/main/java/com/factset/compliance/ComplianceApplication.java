@@ -166,10 +166,7 @@ public class ComplianceApplication implements ApplicationRunner {
         }
 
         // Mode 4: Standard Evaluation Report Run
-        // Inspect rules for diagnostics; invalid rules will be logged and skipped during load
-        validateRulesAndLog(rulesRes);
-
-        // Load datasets through dedicated loaders with automatic stream closing
+        // Load datasets through dedicated loaders with automatic stream closing and error isolation
         List<Transaction> transactions = loadTransactions(txRes);
         List<Rule> rules = loadRules(rulesRes);
 
@@ -275,22 +272,6 @@ public class ComplianceApplication implements ApplicationRunner {
             problems.addAll(validateRules(rulesRes));
         }
         return problems;
-    }
-
-    /**
-     * Inspects rules prior to report generation, logging any diagnostic problems found.
-     * Invalid rules are skipped during loading, allowing evaluation to proceed with all valid rules.
-     * Errors are directed to SLF4J (and stderr) so standard stdout stays reserved for TSV data.
-     *
-     * @param rulesRes The rule resource to inspect.
-     * @throws Exception If an I/O error occurs opening the rule resource.
-     */
-    private void validateRulesAndLog(Resource rulesRes) throws Exception {
-        List<String> problems = validateRules(rulesRes);
-        if (!problems.isEmpty()) {
-            problems.forEach(log::error);
-            log.warn("rules.csv has {} problem(s); skipping invalid rules and proceeding with valid ones.", problems.size());
-        }
     }
 
     /**
